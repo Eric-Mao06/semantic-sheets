@@ -13,7 +13,7 @@ from typing import Any
 
 import pandas as pd
 
-from common import ROOT, astra_cost, jev_cost
+from common import ROOT, jev_cost, planner_cost
 
 sys.path.insert(0, str(ROOT / "server"))
 
@@ -72,7 +72,7 @@ def run_pipeline(scenario: Scenario, prep: Prepared, spend_target_usd: float = 5
         res.estimate = compiled["estimate"]
         usage = compiled["planner"].get("usage") or {}
         res.planner = {**compiled["planner"], "attempts": compiled.get("attempts"), "title": compiled.get("title"), "description": compiled.get("description"),
-                       "cost": astra_cost({"input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"), "reasoning_tokens": usage.get("reasoning_tokens")})}
+                       "cost": planner_cost(compiled["planner"]["model"], usage)}
 
         t2 = time.time()
         limits = {"max_source_rows": max(t.row_count for t in prep.tables), "max_provider_requests": 20_000, "spend_target_usd": spend_target_usd, "deadline_seconds": deadline_seconds}

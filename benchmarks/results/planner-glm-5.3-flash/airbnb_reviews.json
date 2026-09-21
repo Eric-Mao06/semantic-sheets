@@ -1,0 +1,467 @@
+{
+  "run": "planner-glm-5.3-flash",
+  "planner_config": {
+    "provider": "openrouter",
+    "model": "z-ai/glm-5.3-flash",
+    "reasoning_effort": "high"
+  },
+  "scenario": "airbnb_reviews",
+  "title": "Airbnb reviews: unreliable Wi-Fi, grouped by property",
+  "prompt": "Find reviews reporting unreliable Wi-Fi, group by property, and compare nightly prices.",
+  "inputs": [
+    {
+      "name": "airbnb_reviews",
+      "rows": 1200,
+      "columns": [
+        "row_id",
+        "listing_id",
+        "listing_name",
+        "neighbourhood",
+        "borough",
+        "room_type",
+        "nightly_price",
+        "comments"
+      ],
+      "approx_tokens": 111272
+    }
+  ],
+  "notes": [
+    "Bounded to 1200 reviews (many languages) so the one-shot request fits comfortably in context: all 70 reviews in the 5,000-review sample that mention Wi-Fi / internet at all (positive or negative) plus 1130 random others, shuffled. No gold label; the keyword share is reported as a sanity check (a review can report bad Wi-Fi without using the word, and most Wi-Fi mentions are positive)."
+  ],
+  "pipeline": {
+    "plan": {
+      "plan_version": "1",
+      "source": {
+        "dataset_id": "ds_1362ed5670114c77",
+        "version_id": "v_12b35307c69b4a12"
+      },
+      "model": "jev-1.13.0",
+      "steps": [
+        {
+          "id": "flag_wifi",
+          "input": "source",
+          "op": "semantic_annotate",
+          "columns": [
+            "comments"
+          ],
+          "questions": [
+            {
+              "name": "wifi_unreliable",
+              "kind": "boolean",
+              "instruction": "Does this guest review report problems with unreliable Wi-Fi? The text may be in any language; judge the meaning, not the language. Count it as true if the guest complains about Wi-Fi being slow, dropping, not working, weak, or otherwise unreliable (e.g. 'the wifi kept cutting out', 'internet was terrible, could barely connect', 'el wifi no funcionaba'). Do NOT count praise for good or fast Wi-Fi, listings that merely advertise Wi-Fi, or reviews that never mention internet/Wi-Fi.",
+              "criteria": {
+                "true": "The review reports an actual problem with the Wi-Fi/internet at the property being unreliable: slow, intermittent, dropping, weak signal, or not working. Implied complaints count (e.g. 'had to use my phone hotspot because the wifi was useless' implies unreliable Wi-Fi).",
+                "false": "The review does not report any Wi-Fi reliability problem: no mention of Wi-Fi/internet, Wi-Fi mentioned only positively or neutrally (e.g. 'fast Wi-Fi', 'great amenities including wifi'), or problems with other things entirely."
+              },
+              "thresholds": {
+                "true_min": 0.7,
+                "false_max": 0.3
+              },
+              "options": null,
+              "min_confidence": 0.0,
+              "levels": null
+            }
+          ],
+          "on_missing": "unknown"
+        },
+        {
+          "id": "wifi_rows",
+          "input": "flag_wifi",
+          "op": "filter",
+          "where": {
+            "column": "wifi_unreliable.value"
+          },
+          "unknown_policy": "separate"
+        },
+        {
+          "id": "with_price",
+          "input": "wifi_rows",
+          "op": "compute",
+          "columns": [
+            {
+              "name": "nightly_price_num",
+              "expr": {
+                "op": "to_number",
+                "args": [
+                  {
+                    "column": "nightly_price"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "by_listing",
+          "input": "with_price",
+          "op": "aggregate",
+          "group_by": [
+            "listing_id",
+            "listing_name",
+            "neighbourhood",
+            "borough"
+          ],
+          "metrics": [
+            {
+              "name": "wifi_complaint_reviews",
+              "fn": "count",
+              "column": null
+            },
+            {
+              "name": "avg_nightly_price",
+              "fn": "avg",
+              "column": "nightly_price_num"
+            },
+            {
+              "name": "min_nightly_price",
+              "fn": "min",
+              "column": "nightly_price_num"
+            },
+            {
+              "name": "max_nightly_price",
+              "fn": "max",
+              "column": "nightly_price_num"
+            }
+          ]
+        },
+        {
+          "id": "sorted",
+          "input": "by_listing",
+          "op": "sort",
+          "by": [
+            {
+              "column": "wifi_complaint_reviews",
+              "direction": "desc"
+            },
+            {
+              "column": "avg_nightly_price",
+              "direction": "desc"
+            }
+          ]
+        }
+      ],
+      "output": "sorted",
+      "title": "Reviews reporting unreliable Wi-Fi grouped by property with price comparison",
+      "description": "Flags each review for complaints about unreliable Wi-Fi, keeps only flagged rows, converts the text nightly price to a number, and aggregates by listing to show review count and average nightly price per property. Adjust the true_min threshold to be stricter or looser about what counts as a Wi-Fi reliability complaint."
+    },
+    "planner": {
+      "provider": "openrouter",
+      "model": "z-ai/glm-5.3-flash",
+      "reasoning_effort": "high",
+      "latency_ms": 9820,
+      "usage": {
+        "input_tokens": 4970,
+        "output_tokens": 912,
+        "reasoning_tokens": 164,
+        "cost_usd": 0
+      },
+      "attempts": 1,
+      "title": "Reviews reporting unreliable Wi-Fi grouped by property with price comparison",
+      "description": "Flags each review for complaints about unreliable Wi-Fi, keeps only flagged rows, converts the text nightly price to a number, and aggregates by listing to show review count and average nightly price per property. Adjust the true_min threshold to be stricter or looser about what counts as a Wi-Fi reliability complaint.",
+      "cost": {
+        "usd": 0.001201,
+        "source": "list_price",
+        "input_tokens": 4970,
+        "output_tokens": 912,
+        "reasoning_tokens": 164,
+        "prices_per_mtok": {
+          "input": 0.15,
+          "cached_input": 0.15,
+          "output": 0.5
+        }
+      }
+    },
+    "estimate": {
+      "source_rows": 1200,
+      "semantic_rows": 1200,
+      "inference_attempts": 1200,
+      "provider_requests": 120,
+      "input_tokens": 489490,
+      "estimated_cost_usd": 0.020559,
+      "candidate_pairs": 0,
+      "cache_hits_estimated": 0,
+      "stages": [
+        {
+          "step": "flag_wifi",
+          "kind": "annotate",
+          "rows": 1200,
+          "rows_bound": "exact",
+          "questions": 1,
+          "inference_attempts": 1200,
+          "cache_hits_estimated": 0,
+          "requests": 120,
+          "input_tokens": 489490,
+          "mean_tokens_per_row": 403.9,
+          "estimated_cost_usd": 0.020559
+        }
+      ],
+      "quota_floor_seconds": 6.0
+    },
+    "job": {
+      "job_id": "job_1f7bdce126c34e67",
+      "state": "succeeded",
+      "terminal_reason": null,
+      "usage": {
+        "input_tokens": 433043,
+        "output_tokens": 29280,
+        "provider_requests": 120,
+        "spent_usd": 0.018188,
+        "reserved_usd": 0.0,
+        "cache_hits": 0,
+        "ambiguous_attempts": 0
+      },
+      "progress": {
+        "stages": {
+          "flag_wifi": {
+            "rows_total": 1200,
+            "rows_succeeded": 1199,
+            "rows_uncertain": 1,
+            "rows_missing": 0,
+            "rows_failed": 0,
+            "rows_skipped": 0,
+            "rows_pending": 0,
+            "cache_hits": 0,
+            "inference_attempts": 1200,
+            "provider_requests": 120,
+            "pairs": 0,
+            "chunks_committed": 7,
+            "chunks_total": 7,
+            "rows_beyond_cap": 0,
+            "complete": true
+          }
+        },
+        "rows_examined": 1200,
+        "rows_remaining": 0,
+        "errors": 0
+      },
+      "error_summary": null,
+      "errors": []
+    },
+    "step_rows": {
+      "flag_wifi": 1200,
+      "wifi_rows": 16,
+      "with_price": 16,
+      "by_listing": 16,
+      "sorted": 16
+    },
+    "datasets": {
+      "airbnb_reviews": {
+        "dataset_id": "ds_1362ed5670114c77",
+        "version_id": "v_12b35307c69b4a12",
+        "row_count": 1200
+      }
+    },
+    "timings_seconds": {
+      "import": 0.06,
+      "planner": 9.86,
+      "job": 4.25,
+      "total": 14.26
+    },
+    "cost": {
+      "planner_usd": 0.001201,
+      "jev_usd_from_measured_tokens": 0.018188,
+      "jev_usd_reported_by_job": 0.018188,
+      "jev_input_tokens": 433043,
+      "jev_requests": 120,
+      "jev_cache_hits": 0,
+      "total_usd": 0.019389
+    },
+    "error": null
+  },
+  "oneshot": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "status": "completed",
+    "usage": {
+      "input_tokens": 108201,
+      "cached_input_tokens": 0,
+      "output_tokens": 5288,
+      "reasoning_tokens": 4358,
+      "total_tokens": 113489
+    },
+    "cost": {
+      "usd": 1.34641,
+      "tier": "short",
+      "input_tokens": 108201,
+      "cached_input_tokens": 0,
+      "output_tokens": 5288,
+      "reasoning_tokens": 4358,
+      "prices_per_mtok": {
+        "input": 10.0,
+        "cached_input": 1.0,
+        "output": 50.0
+      }
+    },
+    "latency_seconds": 102.1,
+    "input_tokens_estimate": 111529,
+    "response_id": "resp_057d894940a3915b006ab1333a272487d2a4ec617268b9a106",
+    "error": null,
+    "raw_text_head": "{\n  \"properties\": [\n    {\n      \"listing_name\": \"Private Room close to the city\",\n      \"nightly_price\": 88.54,\n      \"listing_id\": \"21325259\",\n      \"review_count\": 1\n    },\n    {\n      \"listing_name\": \"Stylish Private Studio In NYC\",\n      \"nightly_price\": 134.17,\n      \"listing_id\": \"5663222\",\n      \"review_count\": 1\n    },\n    {\n      \"listing_name\": \"Charming Murray Hill Studio, NYC\",\n      \"",
+    "output_summary": {
+      "properties": "list[17]",
+      "wifi_review_row_ids": "list[17]"
+    }
+  },
+  "comparison": {
+    "notes": [
+      "Bounded to 1200 reviews (many languages) so the one-shot request fits comfortably in context: all 70 reviews in the 5,000-review sample that mention Wi-Fi / internet at all (positive or negative) plus 1130 random others, shuffled. No gold label; the keyword share is reported as a sanity check (a review can report bad Wi-Fi without using the word, and most Wi-Fi mentions are positive)."
+    ],
+    "pipeline": {
+      "flagged_reviews": 16,
+      "from_step": "wifi_rows",
+      "keyword_share": 1.0,
+      "review_view": {
+        "wifi_unreliable": {
+          "uncertain": 1
+        }
+      },
+      "properties": 16,
+      "aggregate_check": {
+        "aggregate_step": "by_listing",
+        "groups": 16,
+        "grouped_by": [
+          "listing_id",
+          "listing_name",
+          "neighbourhood",
+          "borough"
+        ],
+        "count_metric": "wifi_complaint_reviews",
+        "total_count_in_aggregate": 16,
+        "flagged_reviews": 16
+      },
+      "top_properties": [
+        {
+          "listing_id": "1125394067603414786",
+          "listing_name": "Lovely 2 bedroom 2 bath apartment",
+          "review_count": 1,
+          "nightly_price": 535.97
+        },
+        {
+          "listing_id": "1173237288996322274",
+          "listing_name": "Perfectly Situated Bay Ridge Studio",
+          "review_count": 1,
+          "nightly_price": 287.0
+        },
+        {
+          "listing_id": "1568939422232770187",
+          "listing_name": "Elegant Hotel Room in Historic Mansfield",
+          "review_count": 1,
+          "nightly_price": 332.8
+        },
+        {
+          "listing_id": "21325259",
+          "listing_name": "Private Room close to the city",
+          "review_count": 1,
+          "nightly_price": 88.54
+        },
+        {
+          "listing_id": "255601",
+          "listing_name": "Cozy Modern 2 Bedroom Apartment 20 min from City",
+          "review_count": 1,
+          "nightly_price": 318.33
+        },
+        {
+          "listing_id": "26294354",
+          "listing_name": "Organic Bohemian Pad in Brooklyn",
+          "review_count": 1,
+          "nightly_price": null
+        },
+        {
+          "listing_id": "28200288",
+          "listing_name": "K-Town Next to Times Sq12 /Dyson Airwrap Available",
+          "review_count": 1,
+          "nightly_price": 287.5
+        },
+        {
+          "listing_id": "37122502",
+          "listing_name": "Amazing Micro Unit W/ communal rooftop and kitchen",
+          "review_count": 1,
+          "nightly_price": 165.0
+        }
+      ]
+    },
+    "oneshot": {
+      "flagged_reviews": 17,
+      "keyword_share": 1.0,
+      "properties_claimed": 17,
+      "properties_implied_by_its_flags": 17,
+      "claimed_properties_matching_its_flags": 17,
+      "review_counts_consistent": 17,
+      "nightly_prices_correct": 16,
+      "top_properties": [
+        {
+          "listing_name": "Private Room close to the city",
+          "nightly_price": 88.54,
+          "listing_id": "21325259",
+          "review_count": 1
+        },
+        {
+          "listing_name": "Stylish Private Studio In NYC",
+          "nightly_price": 134.17,
+          "listing_id": "5663222",
+          "review_count": 1
+        },
+        {
+          "listing_name": "Charming Murray Hill Studio, NYC",
+          "nightly_price": 135.19,
+          "listing_id": "46413888",
+          "review_count": 1
+        },
+        {
+          "listing_name": "Amazing Micro Unit W/ communal rooftop and kitchen",
+          "nightly_price": 165,
+          "listing_id": "37122502",
+          "review_count": 1
+        },
+        {
+          "listing_name": "NYC║2 Bedroom 2 BA║ FREE Garage Parking",
+          "nightly_price": 211.09,
+          "listing_id": "41173094",
+          "review_count": 1
+        },
+        {
+          "listing_name": "Very Comfy, Airy and Spacious, TV In Every Room!",
+          "nightly_price": 228.33,
+          "listing_id": "48721300",
+          "review_count": 1
+        },
+        {
+          "listing_name": "KLO Room #6 With Private Bathroom",
+          "nightly_price": 258,
+          "listing_id": "7919372",
+          "review_count": 1
+        },
+        {
+          "listing_name": "Perfectly Situated Bay Ridge Studio",
+          "nightly_price": 287,
+          "listing_id": "1173237288996322274",
+          "review_count": 1
+        }
+      ]
+    },
+    "agreement": {
+      "reviews": {
+        "both": 16,
+        "only_a": 0,
+        "only_b": 1,
+        "jaccard": 0.9412
+      },
+      "properties": {
+        "both": 16,
+        "only_a": 0,
+        "only_b": 1,
+        "jaccard": 0.9412
+      }
+    },
+    "examples": {
+      "only_pipeline": [],
+      "only_oneshot": [
+        {
+          "row_id": 664,
+          "text": "Jessica,<br/>We loved your home.  It was beautiful, comfortable, and nice touches all around.  I'm glad we were able to help you and your pa"
+        }
+      ]
+    }
+  },
+  "generated_at": "2026-09-21T23:44:25Z"
+}

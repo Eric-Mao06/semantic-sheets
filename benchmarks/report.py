@@ -9,9 +9,10 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from common import ASTRA_PRICES, JEV_PRICE_PER_MTOK_INPUT, LONG_CONTEXT_INPUT_TOKENS, RESULTS_DIR  # noqa: E402
+from common import ASTRA_PRICES, JEV_PRICE_PER_MTOK_INPUT, LONG_CONTEXT_INPUT_TOKENS, PLANNER_PRICES, RESULTS_DIR  # noqa: E402
 
 ORDER = ["support_requests", "banking_queries", "cfpb_complaints", "airbnb_reviews", "retail_gift_categories", "wdc_product_matching"]
+RUN_ORDER = ["planner-gpt-6-astra", "planner-glm-5.3-flash"]
 
 
 def _f(x: Any, nd: int = 2, pct: bool = False) -> str:
@@ -37,7 +38,8 @@ def _headline(r: dict[str, Any]) -> tuple[str, str, str]:
     if "error" in c:
         return c["error"], "", ""
     if k == "support_requests":
-        return (f"{p.get('selected')} rows; P {_f(p.get('precision'), pct=True)} / R {_f(p.get('recall'), pct=True)} / F1 {_f(p.get('f1'), pct=True)}",
+        rv = p.get("gold_rows_in_review_view") or 0
+        return (f"{p.get('selected')} rows; P {_f(p.get('precision'), pct=True)} / R {_f(p.get('recall'), pct=True)} / F1 {_f(p.get('f1'), pct=True)}" + (f"; {rv} more gold rows in review view" if rv else ""),
                 f"{o.get('selected')} rows; P {_f(o.get('precision'), pct=True)} / R {_f(o.get('recall'), pct=True)} / F1 {_f(o.get('f1'), pct=True)}",
                 f"Jaccard {_f(a.get('jaccard'))} ({a.get('both')} shared)")
     if k == "banking_queries":
@@ -126,18 +128,33 @@ def _json_block(obj: Any, limit: int = 6000) -> str:
     return f"```json\n{s}\n```"
 
 
-def render(results: list[dict[str, Any]]) -> str:
-    out: list[str] = []
-    out.append("# Benchmark: Jev spreadsheet operators vs. one-shot gpt-6-astra\n")
-    out.append("Both arms receive the **same prompt** and the **same CSV** (label and leak columns removed, explicit `row_id`).\n")
-    out.append("- **Operators (this repo):** `gpt-6-astra` (reasoning `high`) sees only the schema and ≤ 20 sample rows and writes a typed plan; "
-               "`jev-1.13.0` answers the per-row semantic questions; DuckDB does the filtering, sorting, joins and arithmetic.\n"
-               "- **One-shot:** `gpt-6-astra` (reasoning `high`) receives the whole CSV plus the prompt in a single Responses API request and returns the final answer as JSON (no tools, no code).\n")
+def _planner_desc(results: list[dict[str, Any]]) -> tuple[str, str, str]:
+    cfg = (results[0].get("planner_config") or {}) if results else {}
+    model = cfg.get("model") or ((results[0]["pipeline"].get("planner") or {}).get("model") if results else None) or "gpt-6-astra"
+    provider = cfg.get("provider") or "openai"
+    effort = cfg.get("reasoning_effort") or "high"
+    return model, provider, effort
+
+
+def _price_line() -> str:
     p = ASTRA_PRICES["short"]
     pl = ASTRA_PRICES["long"]
-    out.append(f"Prices used (list, 2026-09-21): gpt-6-astra ${p['input']:.2f} / M input, ${p['cached_input']:.2f} / M cached input, ${p['output']:.2f} / M output "
-               f"(reasoning tokens bill as output; requests over {LONG_CONTEXT_INPUT_TOKENS:,} input tokens reprice to ${pl['input']:.2f} / ${pl['output']:.2f}); "
-               f"jev-1.13.0 ${JEV_PRICE_PER_MTOK_INPUT} / M input, output free. Costs below are computed from the token usage each API reported.\n")
+    glm = PLANNER_PRICES["z-ai/glm-5.3-flash"]
+    return (f"Prices used (list, 2026-09-21): gpt-6-astra ${p['input']:.2f} / M input, ${p['cached_input']:.2f} / M cached input, ${p['output']:.2f} / M output "
+            f"(reasoning tokens bill as output; requests over {LONG_CONTEXT_INPUT_TOKENS:,} input tokens reprice to ${pl['input']:.2f} / ${pl['output']:.2f}); "
+            f"z-ai/glm-5.3-flash via OpenRouter ${glm['input']:.2f} / M input, ${glm['output']:.2f} / M output; "
+            f"jev-1.13.0 ${JEV_PRICE_PER_MTOK_INPUT} / M input, output free. Costs are computed from the token usage each API reported.\n")
+
+
+def render(results: list[dict[str, Any]]) -> str:
+    model, provider, effort = _planner_desc(results)
+    out: list[str] = []
+    out.append(f"# Benchmark run: operators with `{model}` planner vs. one-shot gpt-6-astra\n")
+    out.append("Both arms receive the **same prompt** and the **same CSV** (label and leak columns removed, explicit `row_id`).\n")
+    out.append(f"- **Operators (this repo):** `{model}` (reasoning `{effort}`, via {provider}) sees only the schema and ≤ 20 sample rows and writes a typed plan; "
+               "`jev-1.13.0` answers the per-row semantic questions; DuckDB does the filtering, sorting, joins and arithmetic.\n"
+               "- **One-shot:** `gpt-6-astra` (reasoning `high`) receives the whole CSV plus the prompt in a single Responses API request and returns the final answer as JSON (no tools, no code).\n")
+    out.append(_price_line())
 
     out.append("## Summary\n")
     out.append("| Scenario | Rows | Operators (Jev) | One-shot (Astra) | Agreement |")
@@ -193,17 +210,91 @@ def render(results: list[dict[str, Any]]) -> str:
     return "\n".join(out)
 
 
-def main() -> int:
+def _load_run(run_dir: Path) -> list[dict[str, Any]]:
     results = []
     for k in ORDER:
-        p = RESULTS_DIR / f"{k}.json"
+        p = run_dir / f"{k}.json"
         if p.exists():
             results.append(json.loads(p.read_text(encoding="utf-8")))
-    if not results:
+    return results
+
+
+def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
+    """Top-level RESULTS.md: the one-shot baseline against the operators under each planner."""
+    out: list[str] = []
+    out.append("# Benchmark: Jev spreadsheet operators vs. one-shot gpt-6-astra\n")
+    out.append("Six walkthrough scenarios, each run two ways with the **same prompt and the same CSV**: the operators (planner writes a typed plan → `jev-1.13.0` "
+               "answers per row → DuckDB does the exact work) and a single `gpt-6-astra` (reasoning `high`) request holding the whole CSV. "
+               "The operators were run once per planner model; the one-shot answers are shared across runs.\n")
+    out.append(_price_line())
+    names = [r for r in RUN_ORDER if r in runs] + [r for r in runs if r not in RUN_ORDER]
+    descs = {r: _planner_desc(runs[r]) for r in names}
+    out.append("| Run | Planner | Provider | Details |")
+    out.append("|---|---|---|---|")
+    for r in names:
+        m, prov, eff = descs[r]
+        out.append(f"| `{r}` | `{m}` (reasoning `{eff}`) | {prov} | [results/{r}/RESULTS.md](results/{r}/RESULTS.md) |")
+    out.append("")
+    by_run = {r: {x["scenario"]: x for x in runs[r]} for r in names}
+    base = runs[names[0]]
+    out.append("## Quality\n")
+    out.append("| Scenario | One-shot (gpt-6-astra) | " + " | ".join(f"Operators, `{descs[r][0]}` planner" for r in names) + " |")
+    out.append("|---|---|" + "---|" * len(names))
+    for r0 in base:
+        k = r0["scenario"]
+        _, ho, _ = _headline(r0)
+        cells = []
+        for r in names:
+            x = by_run[r].get(k)
+            cells.append(_headline(x)[0] if x else "–")
+        out.append(f"| **{r0['title']}** | {ho} | " + " | ".join(cells) + " |")
+    out.append("")
+    out.append("## Cost and latency\n")
+    out.append("| Scenario | One-shot cost / latency | " + " | ".join(f"Operators cost / latency, `{descs[r][0]}` planner" for r in names) + " |")
+    out.append("|---|---|" + "---|" * len(names))
+    totals = {r: 0.0 for r in names}
+    tot_o = 0.0
+    for r0 in base:
+        k = r0["scenario"]
+        oc = (r0["oneshot"].get("cost") or {}).get("usd")
+        tot_o += oc or 0.0
+        cells = []
+        for r in names:
+            x = by_run[r].get(k)
+            if not x:
+                cells.append("–")
+                continue
+            c = x["pipeline"].get("cost") or {}
+            t = x["pipeline"].get("timings_seconds") or {}
+            totals[r] += c.get("total_usd") or 0.0
+            cells.append(f"{_usd(c.get('planner_usd'))} planner + {_usd(c.get('jev_usd_from_measured_tokens'))} Jev = **{_usd(c.get('total_usd'))}** · {t.get('planner', 0):.0f}s + {t.get('job', 0):.0f}s")
+        out.append(f"| {r0['title']} | **{_usd(oc)}** · {_latency(r0)[1]} | " + " | ".join(cells) + " |")
+    out.append("| **Total** | **" + _usd(tot_o) + "** | " + " | ".join(f"**{_usd(totals[r])}** ({round(tot_o / totals[r], 1) if totals[r] else '–'}× cheaper than one-shot)" for r in names) + " |")
+    out.append("")
+    out.append("## Agreement between the two arms\n")
+    out.append("| Scenario | " + " | ".join(f"`{descs[r][0]}` planner" for r in names) + " |")
+    out.append("|---|" + "---|" * len(names))
+    for r0 in base:
+        k = r0["scenario"]
+        out.append(f"| {r0['title']} | " + " | ".join((_headline(by_run[r][k])[2] if k in by_run[r] else "–") for r in names) + " |")
+    out.append("")
+    out.append("Per-run reports (every plan, every metric, examples of disagreements): " + ", ".join(f"[{r}](results/{r}/RESULTS.md)" for r in names) + ".\n")
+    return "\n".join(out)
+
+
+def main() -> int:
+    runs: dict[str, list[dict[str, Any]]] = {}
+    for d in sorted(p for p in RESULTS_DIR.iterdir() if p.is_dir()):
+        results = _load_run(d)
+        if results:
+            runs[d.name] = results
+            (d / "RESULTS.md").write_text(render(results), encoding="utf-8")
+            print(f"wrote {d / 'RESULTS.md'} ({len(results)} scenarios)")
+    if not runs:
         print("no results found", file=sys.stderr)
         return 1
-    (HERE / "RESULTS.md").write_text(render(results), encoding="utf-8")
-    print(f"wrote {HERE / 'RESULTS.md'} ({len(results)} scenarios)")
+    (HERE / "RESULTS.md").write_text(render_index(runs), encoding="utf-8")
+    print(f"wrote {HERE / 'RESULTS.md'} ({len(runs)} runs)")
     return 0
 
 

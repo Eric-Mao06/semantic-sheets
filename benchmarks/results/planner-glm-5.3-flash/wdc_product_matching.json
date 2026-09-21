@@ -1,0 +1,383 @@
+{
+  "run": "planner-glm-5.3-flash",
+  "planner_config": {
+    "provider": "openrouter",
+    "model": "z-ai/glm-5.3-flash",
+    "reasoning_effort": "high"
+  },
+  "scenario": "wdc_product_matching",
+  "title": "Product matching: offers to catalog",
+  "prompt": "Match offers to the catalog for the same exact product despite different titles.",
+  "inputs": [
+    {
+      "name": "product_offers",
+      "rows": 400,
+      "columns": [
+        "row_id",
+        "offer_id",
+        "brand",
+        "title",
+        "description",
+        "price",
+        "currency"
+      ],
+      "approx_tokens": 21355
+    },
+    {
+      "name": "product_catalog",
+      "rows": 598,
+      "columns": [
+        "catalog_id",
+        "brand",
+        "title",
+        "description",
+        "price",
+        "currency"
+      ],
+      "approx_tokens": 31847
+    }
+  ],
+  "notes": [
+    "400 offers, each with exactly one true match among 598 catalog entries (WDC gold standard); every other catalog entry is a different product. 396 catalog entries that were the offers' own identical records were removed first. The cluster_id and true_catalog_id columns were removed from both inputs."
+  ],
+  "pipeline": {
+    "plan": {
+      "plan_version": "1",
+      "source": {
+        "dataset_id": "ds_6d9a52f7d8794d9b",
+        "version_id": "v_7b73e084ac554134"
+      },
+      "model": "jev-1.13.0",
+      "steps": [
+        {
+          "id": "match_catalog",
+          "input": "source",
+          "op": "semantic_match",
+          "name": "match",
+          "right": {
+            "dataset_id": "ds_4c754f589ff54b32",
+            "version_id": null
+          },
+          "left_columns": [
+            "brand",
+            "title",
+            "description"
+          ],
+          "right_columns": [
+            "brand",
+            "title",
+            "description"
+          ],
+          "instruction": "Do these two records describe the exact same product (same brand and same specific model/item), even if the titles are worded differently, translated, abbreviated, or include extra or missing details like capacity, color, or part numbers? Text may be in any language; judge by meaning.",
+          "criteria": {
+            "true": "Both records refer to one identical product: the same brand (or one brand is missing/implied) and the same specific model or item, where any differing wording is just phrasing, translation, abbreviation, or extra/missing detail. An offer for e.g. 'Samsung 970 EVO Plus 500GB SSD' matches a catalog entry for the same SSD model in the same capacity.",
+            "false": "The records describe different products (different model, different capacity/variant, different brand, an accessory vs the product, or a compatible/generic/replica alternative rather than the same exact item), or there is not enough information to tell whether it is the exact same product."
+          },
+          "candidates_per_row": 5,
+          "blocking": null,
+          "accept_min": 0.8,
+          "reject_max": 0.3,
+          "right_output_columns": [
+            "catalog_id",
+            "brand",
+            "title",
+            "price",
+            "currency"
+          ],
+          "right_prefix": "match."
+        }
+      ],
+      "output": "match_catalog",
+      "title": "Match offers to catalog products",
+      "description": "For every offer row, candidate catalog rows are retrieved automatically (exact blocking plus lexical similarity) and Jev verifies whether the pair describes the exact same physical product, tolerating different titles, translations, abbreviations and extra/missing wording. Edit candidates_per_row, accept_min or reject_max to trade recall vs precision; uncertain pairs remain in a review view."
+    },
+    "planner": {
+      "provider": "openrouter",
+      "model": "z-ai/glm-5.3-flash",
+      "reasoning_effort": "high",
+      "latency_ms": 5048,
+      "usage": {
+        "input_tokens": 4629,
+        "output_tokens": 552,
+        "reasoning_tokens": 61,
+        "cost_usd": 0
+      },
+      "attempts": 1,
+      "title": "Match offers to catalog products",
+      "description": "For every offer row, candidate catalog rows are retrieved automatically (exact blocking plus lexical similarity) and Jev verifies whether the pair describes the exact same physical product, tolerating different titles, translations, abbreviations and extra/missing wording. Edit candidates_per_row, accept_min or reject_max to trade recall vs precision; uncertain pairs remain in a review view.",
+      "cost": {
+        "usd": 0.00097,
+        "source": "list_price",
+        "input_tokens": 4629,
+        "output_tokens": 552,
+        "reasoning_tokens": 61,
+        "prices_per_mtok": {
+          "input": 0.15,
+          "cached_input": 0.15,
+          "output": 0.5
+        }
+      }
+    },
+    "estimate": {
+      "source_rows": 400,
+      "semantic_rows": 400,
+      "inference_attempts": 2000,
+      "provider_requests": 200,
+      "input_tokens": 720000,
+      "estimated_cost_usd": 0.03024,
+      "candidate_pairs": 2000,
+      "cache_hits_estimated": 0,
+      "stages": [
+        {
+          "step": "match_catalog",
+          "kind": "match",
+          "rows": 400,
+          "rows_bound": "exact",
+          "right_rows": 598,
+          "candidate_pairs": 2000,
+          "inference_attempts": 2000,
+          "requests": 200,
+          "input_tokens": 720000,
+          "estimated_cost_usd": 0.03024,
+          "retrieval": "lex-rapidfuzz-1"
+        }
+      ],
+      "quota_floor_seconds": 10.0
+    },
+    "job": {
+      "job_id": "job_dd37d796d3aa4162",
+      "state": "succeeded",
+      "terminal_reason": null,
+      "usage": {
+        "input_tokens": 910920,
+        "output_tokens": 40800,
+        "provider_requests": 200,
+        "spent_usd": 0.038259,
+        "reserved_usd": 0.0,
+        "cache_hits": 0,
+        "ambiguous_attempts": 0
+      },
+      "progress": {
+        "stages": {
+          "match_catalog": {
+            "rows_total": 400,
+            "rows_succeeded": 314,
+            "rows_uncertain": 86,
+            "rows_missing": 0,
+            "rows_failed": 0,
+            "rows_skipped": 0,
+            "rows_pending": 0,
+            "cache_hits": 0,
+            "inference_attempts": 2000,
+            "provider_requests": 200,
+            "pairs": 2000,
+            "chunks_committed": 3,
+            "chunks_total": 3,
+            "rows_beyond_cap": 0,
+            "complete": true
+          }
+        },
+        "rows_examined": 400,
+        "rows_remaining": 0,
+        "errors": 0
+      },
+      "error_summary": null,
+      "errors": []
+    },
+    "step_rows": {
+      "match_catalog": 400
+    },
+    "datasets": {
+      "product_offers": {
+        "dataset_id": "ds_6d9a52f7d8794d9b",
+        "version_id": "v_7b73e084ac554134",
+        "row_count": 400
+      },
+      "product_catalog": {
+        "dataset_id": "ds_4c754f589ff54b32",
+        "version_id": "v_015f343d36c749e9",
+        "row_count": 598
+      }
+    },
+    "timings_seconds": {
+      "import": 0.08,
+      "planner": 5.09,
+      "job": 8.6,
+      "total": 13.79
+    },
+    "cost": {
+      "planner_usd": 0.00097,
+      "jev_usd_from_measured_tokens": 0.038259,
+      "jev_usd_reported_by_job": 0.038259,
+      "jev_input_tokens": 910920,
+      "jev_requests": 200,
+      "jev_cache_hits": 0,
+      "total_usd": 0.039229
+    },
+    "error": null
+  },
+  "oneshot": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "status": "completed",
+    "usage": {
+      "input_tokens": 66650,
+      "cached_input_tokens": 0,
+      "output_tokens": 17349,
+      "reasoning_tokens": 12338,
+      "total_tokens": 83999
+    },
+    "cost": {
+      "usd": 1.53395,
+      "tier": "short",
+      "input_tokens": 66650,
+      "cached_input_tokens": 0,
+      "output_tokens": 17349,
+      "reasoning_tokens": 12338,
+      "prices_per_mtok": {
+        "input": 10.0,
+        "cached_input": 1.0,
+        "output": 50.0
+      }
+    },
+    "latency_seconds": 346.6,
+    "input_tokens_estimate": 53465,
+    "response_id": "resp_00709206d63e0038006ab13a30cdfc87d282120fd7c6ab7d2d",
+    "error": null,
+    "raw_text_head": "{\"matches\":[{\"offer_id\":85137108,\"catalog_id\":7218865},{\"offer_id\":48406238,\"catalog_id\":17212553},{\"offer_id\":35165067,\"catalog_id\":18787691},{\"offer_id\":20370090,\"catalog_id\":54933824},{\"offer_id\":4493835,\"catalog_id\":28556391},{\"offer_id\":11912295,\"catalog_id\":89829635},{\"offer_id\":7066688,\"catalog_id\":2353834},{\"offer_id\":42864051,\"catalog_id\":26740796},{\"offer_id\":85554698,\"catalog_id\":682842",
+    "output_summary": {
+      "matches": "list[357]"
+    }
+  },
+  "comparison": {
+    "notes": [
+      "400 offers, each with exactly one true match among 598 catalog entries (WDC gold standard); every other catalog entry is a different product. 396 catalog entries that were the offers' own identical records were removed first. The cluster_id and true_catalog_id columns were removed from both inputs."
+    ],
+    "gold_pairs": 400,
+    "pipeline": {
+      "pairs": 175,
+      "status_counts": {
+        "matched": 175,
+        "uncertain": 86,
+        "unmatched": 139
+      },
+      "tp": 170,
+      "fp": 5,
+      "fn": 230,
+      "precision": 0.9714,
+      "recall": 0.425,
+      "f1": 0.5913,
+      "diagnostics": {
+        "candidates_per_row": 5,
+        "accept_min": 0.8,
+        "reject_max": 0.3,
+        "gold_entry_among_candidates": 266,
+        "candidate_recall": 0.665,
+        "gold_candidate_accepted_by_jev": 171,
+        "gold_candidate_left_uncertain": 69,
+        "gold_candidate_rejected_by_jev": 26,
+        "note": "recall lost before Jev = offers whose true entry was not among the lexical candidates; recall lost at Jev = true entry present but scored below accept_min"
+      }
+    },
+    "oneshot": {
+      "pairs": 357,
+      "tp": 348,
+      "fp": 9,
+      "fn": 52,
+      "precision": 0.9748,
+      "recall": 0.87,
+      "f1": 0.9194
+    },
+    "agreement": {
+      "both": 168,
+      "only_a": 7,
+      "only_b": 189,
+      "jaccard": 0.4615
+    },
+    "examples": {
+      "pipeline_wrong": [
+        {
+          "offer_id": 5578260,
+          "title": "Jabra Biz 2300 USB Duo Headset",
+          "chosen": 76663119,
+          "gold": 90972374
+        },
+        {
+          "offer_id": 28769706,
+          "title": "AirPods 2 with Wireless Charging Case",
+          "chosen": 60359264,
+          "gold": 72310020
+        },
+        {
+          "offer_id": 41616522,
+          "title": "TP-Link EAP225-Outdoor Wireless-AC1200 MU-MIMO Gigabit Indoor/Outdoor Access Poi",
+          "chosen": 31785582,
+          "gold": 36061219
+        },
+        {
+          "offer_id": 43630137,
+          "title": "Jabra BIZ 2400 II Mono 3-1 - Mic. 82 NC, Wideband",
+          "chosen": 51760904,
+          "gold": 19751845
+        },
+        {
+          "offer_id": 73554318,
+          "title": "Cartus cerneala Epson 79XL magenta, singlepack DURABrite ultra ink, capacitate (",
+          "chosen": 74965852,
+          "gold": 58023892
+        }
+      ],
+      "oneshot_wrong": [
+        {
+          "offer_id": 10096449,
+          "title": "21 oz Standard Mouth Water Bottle",
+          "chosen": 10899164,
+          "gold": 28179113
+        },
+        {
+          "offer_id": 14287942,
+          "title": "Planet Ocean 600M Omega Co-Axial Chronograph 45.5mm 232.30.46.51.01.002",
+          "chosen": 25758152,
+          "gold": 25758185
+        },
+        {
+          "offer_id": 29909599,
+          "title": "Zebra Black Printer Ribbon for P310F, P310C, P420C, P520C & P720C ID Card Printe",
+          "chosen": 90938642,
+          "gold": 50368196
+        },
+        {
+          "offer_id": 41616522,
+          "title": "TP-Link EAP225-Outdoor Wireless-AC1200 MU-MIMO Gigabit Indoor/Outdoor Access Poi",
+          "chosen": 31785582,
+          "gold": 36061219
+        },
+        {
+          "offer_id": 43630137,
+          "title": "Jabra BIZ 2400 II Mono 3-1 - Mic. 82 NC, Wideband",
+          "chosen": 51760904,
+          "gold": 19751845
+        },
+        {
+          "offer_id": 51855709,
+          "title": "Western Digital Dysk MY PASSPORT 1TB 2,5 black WDBYVG0010BBK-WESN",
+          "chosen": 34298415,
+          "gold": 50944297
+        },
+        {
+          "offer_id": 54954273,
+          "title": "Fujifilm Instax Square Film for SQ10 Hybrid Cameras 20 Shot Pack",
+          "chosen": 68374441,
+          "gold": 54697856
+        },
+        {
+          "offer_id": 74610695,
+          "title": "Apple APPLE AIRPODS (2ND GEN) WIRELESS HEADPHONES WITH WIRELESS CHARGING CASE",
+          "chosen": 72310020,
+          "gold": 81257793
+        }
+      ]
+    }
+  },
+  "generated_at": "2026-09-21T23:44:25Z"
+}

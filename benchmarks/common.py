@@ -23,9 +23,29 @@ ASTRA_PRICES = {
 }
 LONG_CONTEXT_INPUT_TOKENS = 272_000
 
+# Planner (orchestrator) candidates, USD per 1M tokens. OpenRouter list prices read 2026-09-21.
+PLANNER_PRICES = {
+    "gpt-6-astra": ASTRA_PRICES["short"],
+    "z-ai/glm-5.3-flash": {"input": 0.15, "cached_input": 0.15, "output": 0.50},
+}
+
 # TypeSafe Jev 1.13: charged per input token, output tokens free (docs.typesafe.ai/models, 2026-09-21).
 JEV_MODEL = "jev-1.13.0"
 JEV_PRICE_PER_MTOK_INPUT = 0.042
+
+
+def planner_cost(model: str, usage: dict[str, Any]) -> dict[str, Any]:
+    """Cost of one planner call. Uses the provider-reported cost when present, else the list-price table."""
+    reported = usage.get("cost_usd")
+    if reported:
+        return {"usd": round(float(reported), 6), "source": "provider_reported", "input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"), "reasoning_tokens": usage.get("reasoning_tokens")}
+    if model == "gpt-6-astra":
+        return {**astra_cost(usage), "source": "list_price"}
+    p = PLANNER_PRICES.get(model)
+    if p is None:
+        return {"usd": None, "source": "unknown_model", "input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"), "reasoning_tokens": usage.get("reasoning_tokens")}
+    cost = int(usage.get("input_tokens") or 0) / 1e6 * p["input"] + int(usage.get("output_tokens") or 0) / 1e6 * p["output"]
+    return {"usd": round(cost, 6), "source": "list_price", "input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"), "reasoning_tokens": usage.get("reasoning_tokens"), "prices_per_mtok": p}
 
 
 def astra_cost(usage: dict[str, Any]) -> dict[str, Any]:
