@@ -21,7 +21,7 @@ ExprOp = Literal[
     "is_null", "not_null",
     "add", "sub", "mul", "div",
     "coalesce", "lower", "upper", "length", "trim", "year", "month", "date",
-    "case",
+    "to_number", "replace", "case",
 ]
 
 

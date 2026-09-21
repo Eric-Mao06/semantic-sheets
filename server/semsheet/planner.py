@@ -29,6 +29,7 @@ Execution model:
 - A semantic step must be placed before the exact steps that use its outputs. A filter that references <name>.value uses unknown_policy "separate" (default) so uncertain rows go to a review view.
 - Ranking = score question + sort by <name>.score desc (tie-break is automatic). Rank descending for "most severe/urgent".
 - Group/aggregate = category question + aggregate step (group_by the .value column, metrics count/sum/avg/...). Always keep a count metric.
+- Text columns holding money like "$148.04" must be converted with {"op":"to_number","args":[{"column":"price"}]} in a compute step before arithmetic or sorting.
 - Column names containing dots must be written exactly (e.g. "severity.score").
 - If a request needs data that is not in the schema (e.g. a revenue table), still produce the best plan over available columns and explain the gap in "description".
 
@@ -52,7 +53,7 @@ Step shapes:
  {"id","op":"join","input","right":{"dataset_id":"..."} ,"on":[{"left","right"}],"how":"inner|left","right_columns":[...]}
  {"id","op":"distinct","input","columns":[...]}
  {"id","op":"limit","input","n":100}
-Expression <expr>: {"column":"name"} | {"literal": value} | {"op":"eq|ne|gt|gte|lt|lte|and|or|not|contains|icontains|starts_with|ends_with|in|is_null|not_null|add|sub|mul|div|coalesce|lower|upper|length|trim|year|month|date|case","args":[<expr>,...]}
+Expression <expr>: {"column":"name"} | {"literal": value} | {"op":"eq|ne|gt|gte|lt|lte|and|or|not|contains|icontains|starts_with|ends_with|in|is_null|not_null|add|sub|mul|div|coalesce|lower|upper|length|trim|year|month|date|to_number|replace|case","args":[<expr>,...]}
 Step ids and question names: letters, digits, underscore. The first step's input is "source". Return ONLY the JSON object."""
 
 

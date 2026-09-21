@@ -178,6 +178,14 @@ class ExprCompiler:
         if e.op == "date":
             need(1)
             return f"TRY_CAST({self.compile(args[0], p + '.args[0]')} AS DATE)"
+        if e.op == "to_number":
+            need(1)
+            a = self.compile(args[0], p + ".args[0]")
+            return f"TRY_CAST(regexp_replace(CAST({a} AS VARCHAR), '[^0-9.\\-]', '', 'g') AS DOUBLE)"
+        if e.op == "replace":
+            need(3)
+            a, b, c = (self.compile(x, f"{p}.args[{i}]") for i, x in enumerate(args))
+            return f"replace(CAST({a} AS VARCHAR), {b}, {c})"
         if e.op == "case":
             # case(cond1, val1, cond2, val2, ..., else)
             if n < 3 or n % 2 == 0:
