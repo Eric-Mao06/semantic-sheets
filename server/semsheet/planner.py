@@ -22,7 +22,9 @@ Execution model:
   * boolean  -> yes/no probability. Use for semantic filters and flags. Output columns: <name>.value (true/false/null), <name>.score (p_yes), <name>.status
   * category -> pick one label from a fixed set you define (with short descriptions). Output: <name>.value (label), <name>.score (p_top), <name>.confidence, <name>.status
   * score    -> rate on an ordered rubric of 2-10 described levels. Output: <name>.value (level label), <name>.score (expected level index, 0-based float), <name>.confidence, <name>.status
-- Jev is literal: write the exact condition. Put boundary cases in criteria. Keep one judgement per question; split compound judgements into several questions in the same semantic_annotate step (they are fused into one request per row).
+- Jev is literal: write the exact condition. Put boundary cases in criteria. Keep one judgement per question.
+- For a semantic filter like "find X because Y" or "X that also Y", write ONE boolean question that states the whole condition (X because Y) and spell out in criteria.true that implied statements count (e.g. "I cannot afford order 123" implies wanting to cancel it). Do NOT decompose one filter into several boolean questions joined with AND: each question misses some phrasings and the AND compounds the misses. Use several questions only when the user asks for several separate attributes (e.g. a filter plus an urgency score, or two independent flags).
+- Multilingual text: say in the instruction that the text may be in any language and the judgement applies to its meaning.
 - Jev cannot count, do arithmetic, compare dates, or generate text. Never ask it to. Use compute/aggregate for numbers.
 - Always include an "other" (or "insufficient_evidence") option in category taxonomies when the user did not supply exhaustive labels.
 - Do NOT show label/answer columns to the model when the user asks to evaluate accuracy against them (e.g. exclude columns named like intent/category/label/response when classifying the user text). Only include the input text columns needed for the judgement.
@@ -95,6 +97,7 @@ def compile_prompt(prompt: str, dataset_id: str, version_id: str, schema: list[d
     if feedback:
         user.append("Validation feedback on the previous attempt, fix these issues:\n" + feedback[:2000])
     user.append("User request:\n" + prompt.strip())
+    user.append("Respond with the plan as a single JSON object and nothing else.")
     started = time.time()
     resp = client.responses.create(
         model=settings.planner_model,

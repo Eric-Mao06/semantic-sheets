@@ -26,8 +26,8 @@ SAMPLES: list[dict] = [
         "key": "cfpb_complaints",
         "title": "Consumer finance complaints",
         "file": "cfpb_complaints_5000.csv",
-        "description": "5,000 CFPB complaints with narratives, company, product and dates.",
-        "suggested": "Find complaints about charges continuing after cancellation, then rank by urgency.",
+        "description": "5,000 CFPB complaints with product, issue, sub-issue, company and dates. The current public export no longer includes free-text narratives, so semantic operations run on the issue text.",
+        "suggested": "Find complaints about charges continuing after cancellation or unauthorized recurring charges, then rank by urgency.",
         "options": {},
     },
     {
