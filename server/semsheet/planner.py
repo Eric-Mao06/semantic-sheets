@@ -84,9 +84,6 @@ def _schema_summary(schema: list[dict[str, Any]]) -> str:
 
 def compile_prompt(prompt: str, dataset_id: str, version_id: str, schema: list[dict[str, Any]], sample: list[dict[str, Any]], row_count: int,
                    other_datasets: list[dict[str, Any]] | None = None, previous_plan: dict[str, Any] | None = None, feedback: str | None = None) -> dict[str, Any]:
-    if not settings.openai_api_key:
-        raise PlannerError("OPENAI_API_KEY is not configured")
-    client = OpenAI(api_key=settings.openai_api_key)
     user = [
         f"Dataset id: {dataset_id}\nVersion id: {version_id}\nRows: {row_count}",
         "Columns:\n" + _schema_summary(schema),
@@ -101,11 +98,35 @@ def compile_prompt(prompt: str, dataset_id: str, version_id: str, schema: list[d
     user.append("User request:\n" + prompt.strip())
     user.append("Respond with the plan as a single JSON object and nothing else.")
     started = time.time()
+    if settings.planner_provider == "openrouter":
+        text, usage_d = _call_openrouter("\n\n".join(user))
+    else:
+        text, usage_d = _call_openai("\n\n".join(user))
+    text = _strip_code_fence(text)
+    try:
+        obj = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise PlannerError(f"planner returned invalid JSON: {e}")
+    if isinstance(obj, dict) and "plan" in obj and "steps" not in obj:
+        obj = obj["plan"]
+    if not isinstance(obj, dict):
+        raise PlannerError("planner returned a JSON value that is not an object")
+    obj.setdefault("plan_version", "1")
+    obj["source"] = {"dataset_id": dataset_id, "version_id": version_id}
+    obj.setdefault("model", settings.jev_model)
+    return {"plan": obj, "planner": {"provider": settings.planner_provider, "model": settings.planner_model, "reasoning_effort": settings.planner_reasoning_effort,
+                                     "latency_ms": int((time.time() - started) * 1000), "usage": usage_d}}
+
+
+def _call_openai(user_text: str) -> tuple[str, dict[str, Any]]:
+    if not settings.openai_api_key:
+        raise PlannerError("OPENAI_API_KEY is not configured")
+    client = OpenAI(api_key=settings.openai_api_key)
     resp = client.responses.create(
         model=settings.planner_model,
         reasoning={"effort": settings.planner_reasoning_effort},
         instructions=SYSTEM_PROMPT,
-        input="\n\n".join(user),
+        input=user_text,
         text={"format": {"type": "json_object"}},
         max_output_tokens=settings.planner_max_output_tokens,
     )
@@ -117,18 +138,38 @@ def compile_prompt(prompt: str, dataset_id: str, version_id: str, schema: list[d
                     if getattr(part, "type", None) == "output_text":
                         text += part.text
     usage = getattr(resp, "usage", None)
-    usage_d = {"input_tokens": getattr(usage, "input_tokens", None), "output_tokens": getattr(usage, "output_tokens", None),
-               "reasoning_tokens": getattr(getattr(usage, "output_tokens_details", None), "reasoning_tokens", None)}
-    try:
-        obj = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise PlannerError(f"planner returned invalid JSON: {e}")
-    if isinstance(obj, dict) and "plan" in obj and "steps" not in obj:
-        obj = obj["plan"]
-    obj.setdefault("plan_version", "1")
-    obj["source"] = {"dataset_id": dataset_id, "version_id": version_id}
-    obj.setdefault("model", settings.jev_model)
-    return {"plan": obj, "planner": {"model": settings.planner_model, "reasoning_effort": settings.planner_reasoning_effort, "latency_ms": int((time.time() - started) * 1000), "usage": usage_d}}
+    return text, {"input_tokens": getattr(usage, "input_tokens", None), "output_tokens": getattr(usage, "output_tokens", None),
+                  "reasoning_tokens": getattr(getattr(usage, "output_tokens_details", None), "reasoning_tokens", None), "cost_usd": None}
+
+
+def _call_openrouter(user_text: str) -> tuple[str, dict[str, Any]]:
+    """OpenRouter speaks the OpenAI chat completions API; reasoning effort and usage accounting (including the
+    provider-reported cost) go through extra_body."""
+    if not settings.openrouter_api_key:
+        raise PlannerError("OPENROUTER_API_KEY is not configured")
+    client = OpenAI(api_key=settings.openrouter_api_key, base_url=settings.openrouter_base_url, timeout=600)
+    resp = client.chat.completions.create(
+        model=settings.planner_model,
+        messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_text}],
+        response_format={"type": "json_object"},
+        max_tokens=settings.planner_max_output_tokens,
+        extra_body={"reasoning": {"effort": settings.planner_reasoning_effort}, "usage": {"include": True}},
+    )
+    choice = resp.choices[0] if resp.choices else None
+    text = (choice.message.content if choice and choice.message else None) or ""
+    usage = getattr(resp, "usage", None)
+    details = getattr(usage, "completion_tokens_details", None)
+    return text, {"input_tokens": getattr(usage, "prompt_tokens", None), "output_tokens": getattr(usage, "completion_tokens", None),
+                  "reasoning_tokens": getattr(details, "reasoning_tokens", None), "cost_usd": getattr(usage, "cost", None)}
+
+
+def _strip_code_fence(text: str) -> str:
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.split("\n", 1)[1] if "\n" in t else t[3:]
+        if t.rstrip().endswith("```"):
+            t = t.rstrip()[:-3]
+    return t.strip()
 
 
 def validate_shape(obj: dict[str, Any]) -> list[str]:

@@ -35,8 +35,12 @@ class Settings:
     jev_max_retries: int = 5
     jev_timeout_seconds: float = 60.0
 
-    # Planner: frontier model (OpenAI)
+    # Planner: frontier model. PLANNER_PROVIDER "openai" calls the OpenAI Responses API directly; "openrouter" calls
+    # any OpenRouter model (e.g. z-ai/glm-5.3-flash) through its OpenAI-compatible chat completions endpoint.
+    planner_provider: str = field(default_factory=lambda: os.environ.get("PLANNER_PROVIDER", "openai"))
     openai_api_key: str = field(default_factory=lambda: os.environ.get("OPENAI_API_KEY", ""))
+    openrouter_api_key: str = field(default_factory=lambda: os.environ.get("OPENROUTER_API_KEY", ""))
+    openrouter_base_url: str = field(default_factory=lambda: os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"))
     planner_model: str = field(default_factory=lambda: os.environ.get("PLANNER_MODEL", "gpt-6-astra"))
     planner_reasoning_effort: str = field(default_factory=lambda: os.environ.get("PLANNER_REASONING", "high"))
     planner_max_output_tokens: int = field(default_factory=lambda: _env_int("PLANNER_MAX_OUTPUT_TOKENS", 12_000))

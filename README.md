@@ -27,6 +27,14 @@ PLANNER_MODEL=gpt-6-astra
 PLANNER_REASONING=high
 ```
 
+The planner can also run on any OpenRouter model through its OpenAI-compatible endpoint, e.g. GLM 5.3 Flash:
+
+```
+PLANNER_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-...
+PLANNER_MODEL=z-ai/glm-5.3-flash
+```
+
 ## Run
 
 ```bash
@@ -63,8 +71,10 @@ cd web && npx tsc -p tsconfig.app.json --noEmit && npm run build
 
 `benchmarks/` compares the operators (planner + Jev + DuckDB) with handing the same CSV and prompt to `gpt-6-astra`
 (reasoning `high`) in one request, on the six walkthrough scenarios: output quality against gold or agreement
-metrics, token usage, cost and latency. See [`benchmarks/README.md`](benchmarks/README.md) for the method and findings
-and [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for every plan, metric and disagreement.
+metrics, token usage, cost and latency. The operators were run with two planners (`gpt-6-astra` and
+`z-ai/glm-5.3-flash` via OpenRouter). See [`benchmarks/README.md`](benchmarks/README.md) for the method and findings,
+[`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for the cross-planner summary and `benchmarks/results/<run>/RESULTS.md`
+for every plan, metric and disagreement.
 
 ## How it works
 
