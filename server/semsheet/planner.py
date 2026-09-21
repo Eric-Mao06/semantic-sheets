@@ -52,7 +52,7 @@ Step shapes:
  {"id","op":"project","input","columns":[...]}
  {"id","op":"compute","input","columns":[{"name","expr":<expr>}]}
  {"id","op":"aggregate","input","group_by":[...],"metrics":[{"name","fn":"count|count_distinct|sum|avg|min|max","column":"<col or omit for count>"}]}
- {"id","op":"join","input","right":{"dataset_id":"..."} ,"on":[{"left","right"}],"how":"inner|left","right_columns":[...]}
+ {"id","op":"join","input","right":{"dataset_id":"<id of another workspace dataset>"},"on":[{"left","right"}],"how":"inner|left","right_columns":[...]}   (right columns appear in the output as "right.<name>", e.g. "right.country"; the join output has fresh row ids and a left_row_id column)
  {"id","op":"distinct","input","columns":[...]}
  {"id","op":"limit","input","n":100}
 Expression <expr>: {"column":"name"} | {"literal": value} | {"op":"eq|ne|gt|gte|lt|lte|and|or|not|contains|icontains|starts_with|ends_with|in|is_null|not_null|add|sub|mul|div|coalesce|lower|upper|length|trim|year|month|date|to_number|replace|case","args":[<expr>,...]}

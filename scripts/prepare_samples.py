@@ -60,7 +60,14 @@ def cfpb(scan_rows: int = 400_000) -> None:
     if narrative_idx is not None:
         rows = [r for r in rows if r[narrative_idx].strip()]
         print(f"cfpb: {len(rows)} rows with narratives")
-    sample = random.sample(rows, min(5000, len(rows)))
+    # The 2026 export is ~94% credit-reporting complaints; balance the demo sample so billing, account and
+    # debt-collection issues are actually present (4,000 non-credit-reporting + 1,000 credit-reporting rows).
+    product_idx = header.index("Product")
+    credit = [r for r in rows if r[product_idx].startswith("Credit reporting")]
+    other = [r for r in rows if not r[product_idx].startswith("Credit reporting")]
+    random.seed(7)
+    sample = random.sample(other, min(4000, len(other))) + random.sample(credit, min(1000, len(credit)))
+    random.shuffle(sample)
     for fname, data in (("cfpb_complaints_5000.csv", sample), ("cfpb_complaints_100k.csv", rows[:100_000]), ("cfpb_complaints_300k.csv", rows[:300_000])):
         with open(OUT / fname, "w", newline="", encoding="utf-8") as out:
             w = csv.writer(out)

@@ -124,3 +124,18 @@ def test_cache_key_depends_on_question_and_payload_not_row():
     assert k1 == jev.cache_key("ws", "m", q2, {"text": "hello"})  # question name is not part of the key
     assert k1 != jev.cache_key("ws", "m", q, {"text": "hello!"})
     assert k1 != jev.cache_key("ws", "m2", q, {"text": "hello"})
+
+
+def test_join_one_to_many_renumbers_rows(tmp_path):
+    right = pa.table({"_row_id": pa.array([0, 1, 2], pa.int64()), "code": ["UK", "UK", "DE"], "region": ["north", "south", "west"]})
+    rp = tmp_path / "right.parquet"
+    pq.write_table(right, rp)
+    ctx = _base(tmp_path)
+    ctx.datasets["dright"] = (rp, [{"name": "_row_id", "type": "integer"}, {"name": "code", "type": "text"}, {"name": "region", "type": "text"}])
+    plan = _plan([{"id": "j", "op": "join", "input": "source", "right": {"dataset_id": "dright"}, "on": [{"left": "country", "right": "code"}], "how": "inner", "right_columns": ["region"]}], "j")
+    compiled = compile_plan(plan, ctx)
+    rows = _rows(compiled, "j")
+    assert [r["_row_id"] for r in rows] == list(range(len(rows)))  # unique, dense
+    assert sorted(r["left_row_id"] for r in rows) == [0, 0, 1, 1, 4]  # UK rows doubled, FR rows dropped, DE once
+    assert {r["right.region"] for r in rows if r["left_row_id"] == 4} == {"west"}
+    assert compiled.relations["j"].row_preserving is False

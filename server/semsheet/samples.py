@@ -42,8 +42,16 @@ SAMPLES: list[dict] = [
         "key": "retail_products",
         "title": "Online retail products",
         "file": "online_retail_products.csv",
-        "description": "Distinct products from Online Retail II with revenue and quantity aggregated per product and country.",
-        "suggested": "Classify products into gift categories, then calculate revenue by category and country.",
+        "description": "4,908 distinct products from Online Retail II (1.07M transactions) with total revenue, quantity and transaction counts per product.",
+        "suggested": "Classify products into gift categories, then calculate revenue by category and country using the retail revenue by product and country table.",
+        "options": {},
+    },
+    {
+        "key": "retail_product_country",
+        "title": "Retail revenue by product and country",
+        "file": "online_retail_product_country.csv",
+        "description": "28,365 product x country rows (stock_code, country, revenue, quantity, transactions) from Online Retail II, for joins with the products table.",
+        "suggested": "",
         "options": {},
     },
     {

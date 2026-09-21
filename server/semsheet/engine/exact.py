@@ -473,13 +473,16 @@ class PlanCompiler:
         for c in rcols:
             if not right_rel.has(c):
                 raise PlanError(path + ".right_columns", "unknown_column", f"Right column '{c}' does not exist")
-        selects = [f"l.{q(c)}" for c in inp.column_names()] + [f"r.{q(c)} AS {q(step.right_prefix + c)}" for c in rcols]
+        # A join can multiply left rows (one-to-many), so the output gets fresh, deterministic row ids ordered by
+        # (left row id, right row id); the original left id is kept as left_row_id for traceability.
+        selects = [f"CAST(row_number() OVER (ORDER BY l.{q(ROW_ID)}, r.{q(ROW_ID)}) - 1 AS BIGINT) AS {q(ROW_ID)}", f"l.{q(ROW_ID)} AS left_row_id"]
+        selects += [f"l.{q(c)}" for c in inp.column_names() if c != ROW_ID] + [f"r.{q(c)} AS {q(step.right_prefix + c)}" for c in rcols]
         on = " AND ".join(f"l.{q(k.left)} = r.{q(k.right)}" for k in step.on)
         how = "LEFT JOIN" if step.how == "left" else "JOIN"
         self.ctes.append((step.id, f"SELECT {', '.join(selects)} FROM {q(inp.name)} l {how} {right_src} r ON {on}"))
         rtypes = {c.name: c.type for c in right_rel.columns}
-        cols = inp.columns + [Column(step.right_prefix + c, rtypes[c], "right") for c in rcols]
-        self.relations[step.id] = Relation(step.id, cols, inp.row_preserving, dict(inp.semantic_statuses), list(inp.pending_statuses))
+        cols = [Column(ROW_ID, "integer", "row_id"), Column("left_row_id", "integer", "derived")] + [c for c in inp.columns if c.name != ROW_ID] + [Column(step.right_prefix + c, rtypes[c], "right") for c in rcols]
+        self.relations[step.id] = Relation(step.id, cols, False, dict(inp.semantic_statuses), list(inp.pending_statuses))
 
     def _distinct(self, step: DistinctStep, inp: Relation, path: str) -> None:
         cols = step.columns or [c.name for c in inp.columns if c.name != ROW_ID]
