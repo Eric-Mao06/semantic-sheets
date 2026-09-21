@@ -17,7 +17,8 @@ data/      SQLite metadata, Parquet datasets/results, exports, Jev answer cache 
 
 - Python 3.12+ and [`uv`](https://docs.astral.sh/uv/) (or `pip` with `server/requirements.txt`)
 - Node 20+ (frontend)
-- API keys in `.env` at the repo root (loaded by the server processes):
+- API keys exported in the environment of the API and worker processes (a `.env` at the repo root is a
+  convenient place; load it with `set -a; source .env; set +a`):
 
 ```
 TYPESAFE_API_KEY=apikey_...
@@ -30,6 +31,7 @@ PLANNER_REASONING=high
 
 ```bash
 # backend API (port 8000) and the job worker, from server/
+set -a; source .env; set +a
 cd server
 uv sync --extra dev
 uv run python -m semsheet.main        # API: http://localhost:8000  (MCP: POST http://localhost:8000/mcp)
