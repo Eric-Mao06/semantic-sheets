@@ -1,0 +1,527 @@
+{
+  "scenario": "retail_gift_categories",
+  "title": "Retail: gift categories, revenue by category and country",
+  "prompt": "Classify products into gift categories, then calculate revenue by category and country using the retail revenue by product and country table.",
+  "inputs": [
+    {
+      "name": "retail_products",
+      "rows": 300,
+      "columns": [
+        "row_id",
+        "stock_code",
+        "description",
+        "revenue",
+        "quantity",
+        "transactions",
+        "countries"
+      ],
+      "approx_tokens": 4488
+    },
+    {
+      "name": "retail_revenue_by_product_and_country",
+      "rows": 4758,
+      "columns": [
+        "stock_code",
+        "country",
+        "revenue",
+        "quantity",
+        "transactions"
+      ],
+      "approx_tokens": 31412
+    }
+  ],
+  "notes": [
+    "Bounded to the 300 highest-revenue products and their 4758 product x country revenue rows. Both approaches define their own gift taxonomy, so labels are compared with clustering agreement (ARI / NMI) rather than exact match; the revenue table is recomputed exactly from each approach's own labels to check the arithmetic."
+  ],
+  "pipeline": {
+    "plan": {
+      "plan_version": "1",
+      "source": {
+        "dataset_id": "ds_77db5e4a362d4de1",
+        "version_id": "v_cf5731cf17cd42f2"
+      },
+      "model": "jev-1.13.0",
+      "steps": [
+        {
+          "id": "classify_products",
+          "input": "source",
+          "op": "semantic_annotate",
+          "columns": [
+            "description"
+          ],
+          "questions": [
+            {
+              "name": "gift_category",
+              "kind": "category",
+              "instruction": "Assign the product to exactly one primary gift category based on its description. The text may be in any language; classify its meaning. Prefer the product's practical function over decorative motifs: a heart-patterned mug remains kitchen_dining, and a skull-patterned lunch bag remains bags_fashion_accessories. Use seasonal_party for explicitly occasion-specific decorations or party supplies, not ordinary functional products with festive motifs. Classify candleholders as candles_fragrance, trinket boxes as home_decor, and creative activity kits as arts_crafts. Use other when the product is unclear or does not fit the taxonomy.",
+              "criteria": null,
+              "thresholds": {
+                "true_min": 0.85,
+                "false_max": 0.15
+              },
+              "options": {
+                "kitchen_dining": "Tableware, drinkware, cutlery, serving pieces, cookware, kitchen tools, food-storage containers, and food or drink gifts.",
+                "home_decor": "Decorative ornaments, frames, household textiles, mats, general household storage, trinket boxes, and other home accessories excluding candle-related items.",
+                "candles_fragrance": "Candles, tea lights, candleholders, fragrance burners, diffusers, and home-fragrance products.",
+                "bags_fashion_accessories": "Shopping bags, lunch bags, handbags, purses, wallets, umbrellas, clothing, and wearable accessories other than jewellery.",
+                "toys_games": "Toys, games, puzzles, playful novelties, and musical toys or instruments.",
+                "arts_crafts": "Art materials, paints, sewing supplies, craft components, and creative activity kits.",
+                "stationery_gift_wrap": "Notebooks, writing supplies, greeting cards, gift wrap, gift bags, tags, and other stationery.",
+                "beauty_jewellery": "Jewellery, cosmetics, bath products, grooming products, and personal beauty accessories.",
+                "garden_outdoor": "Plant pots, gardening tools, bird feeders, garden ornaments, and outdoor-living gifts.",
+                "seasonal_party": "Holiday-specific decorations, Christmas ornaments, party decorations, party favors, and occasion-specific celebration supplies.",
+                "other": "Products outside these categories or descriptions with insufficient evidence to determine a category."
+              },
+              "min_confidence": 0.0,
+              "levels": null
+            }
+          ],
+          "on_missing": "unknown"
+        },
+        {
+          "id": "product_categories",
+          "input": "classify_products",
+          "op": "project",
+          "columns": [
+            "stock_code",
+            "gift_category.value"
+          ]
+        },
+        {
+          "id": "unique_product_categories",
+          "input": "product_categories",
+          "op": "distinct",
+          "columns": [
+            "stock_code",
+            "gift_category.value"
+          ]
+        },
+        {
+          "id": "join_country_revenue",
+          "input": "unique_product_categories",
+          "op": "join",
+          "right": {
+            "dataset_id": "ds_e70d6c7e27bb4b5b",
+            "version_id": null
+          },
+          "on": [
+            {
+              "left": "stock_code",
+              "right": "stock_code"
+            }
+          ],
+          "how": "inner",
+          "right_columns": [
+            "country",
+            "revenue"
+          ],
+          "right_prefix": "right."
+        },
+        {
+          "id": "category_country_totals",
+          "input": "join_country_revenue",
+          "op": "aggregate",
+          "group_by": [
+            "gift_category.value",
+            "right.country"
+          ],
+          "metrics": [
+            {
+              "name": "record_count",
+              "fn": "count",
+              "column": null
+            },
+            {
+              "name": "product_count",
+              "fn": "count_distinct",
+              "column": "stock_code"
+            },
+            {
+              "name": "total_revenue",
+              "fn": "sum",
+              "column": "right.revenue"
+            }
+          ]
+        },
+        {
+          "id": "name_output_columns",
+          "input": "category_country_totals",
+          "op": "compute",
+          "columns": [
+            {
+              "name": "country",
+              "expr": {
+                "column": "right.country"
+              }
+            },
+            {
+              "name": "gift_category",
+              "expr": {
+                "column": "gift_category.value"
+              }
+            }
+          ]
+        },
+        {
+          "id": "sort_totals",
+          "input": "name_output_columns",
+          "op": "sort",
+          "by": [
+            {
+              "column": "country",
+              "direction": "asc"
+            },
+            {
+              "column": "total_revenue",
+              "direction": "desc"
+            }
+          ]
+        },
+        {
+          "id": "final_output",
+          "input": "sort_totals",
+          "op": "project",
+          "columns": [
+            "country",
+            "gift_category",
+            "total_revenue",
+            "product_count",
+            "record_count"
+          ]
+        }
+      ],
+      "output": "final_output",
+      "title": "Gift-category revenue by country",
+      "description": "Assigns products to an editable gift-category taxonomy, deduplicates stock-code/category mappings, and sums country-level revenue from the joined retail table. Results cover matched stock codes and assume each stock code has a consistent category."
+    },
+    "planner": {
+      "model": "gpt-6-astra",
+      "reasoning_effort": "high",
+      "latency_ms": 50141,
+      "usage": {
+        "input_tokens": 3190,
+        "output_tokens": 2155,
+        "reasoning_tokens": 919
+      },
+      "attempts": 1,
+      "title": "Gift-category revenue by country",
+      "description": "Assigns products to an editable gift-category taxonomy, deduplicates stock-code/category mappings, and sums country-level revenue from the joined retail table. Results cover matched stock codes and assume each stock code has a consistent category.",
+      "cost": {
+        "usd": 0.13965,
+        "tier": "short",
+        "input_tokens": 3190,
+        "cached_input_tokens": 0,
+        "output_tokens": 2155,
+        "reasoning_tokens": 919,
+        "prices_per_mtok": {
+          "input": 10.0,
+          "cached_input": 1.0,
+          "output": 50.0
+        }
+      }
+    },
+    "estimate": {
+      "source_rows": 300,
+      "semantic_rows": 300,
+      "inference_attempts": 300,
+      "provider_requests": 30,
+      "input_tokens": 189102,
+      "estimated_cost_usd": 0.007942,
+      "candidate_pairs": 0,
+      "cache_hits_estimated": 0,
+      "stages": [
+        {
+          "step": "classify_products",
+          "kind": "annotate",
+          "rows": 300,
+          "rows_bound": "exact",
+          "questions": 1,
+          "inference_attempts": 300,
+          "cache_hits_estimated": 0,
+          "requests": 30,
+          "input_tokens": 189102,
+          "mean_tokens_per_row": 626.3,
+          "estimated_cost_usd": 0.007942
+        }
+      ],
+      "quota_floor_seconds": 1.5
+    },
+    "job": {
+      "job_id": "job_6c7c787ea17e44f1",
+      "state": "succeeded",
+      "terminal_reason": null,
+      "usage": {
+        "input_tokens": 184665,
+        "output_tokens": 40902,
+        "provider_requests": 30,
+        "spent_usd": 0.007756,
+        "reserved_usd": 0.0,
+        "cache_hits": 0,
+        "ambiguous_attempts": 0
+      },
+      "progress": {
+        "stages": {
+          "classify_products": {
+            "rows_total": 300,
+            "rows_succeeded": 300,
+            "rows_uncertain": 0,
+            "rows_missing": 0,
+            "rows_failed": 0,
+            "rows_skipped": 0,
+            "rows_pending": 0,
+            "cache_hits": 0,
+            "inference_attempts": 300,
+            "provider_requests": 30,
+            "pairs": 0,
+            "chunks_committed": 3,
+            "chunks_total": 3,
+            "rows_beyond_cap": 0,
+            "complete": true
+          }
+        },
+        "rows_examined": 300,
+        "rows_remaining": 0,
+        "errors": 0
+      },
+      "error_summary": null,
+      "errors": []
+    },
+    "step_rows": {
+      "join_country_revenue": 4758,
+      "name_output_columns": 376,
+      "final_output": 376,
+      "category_country_totals": 376,
+      "sort_totals": 376,
+      "classify_products": 300,
+      "unique_product_categories": 300,
+      "product_categories": 300
+    },
+    "datasets": {
+      "retail_products": {
+        "dataset_id": "ds_77db5e4a362d4de1",
+        "version_id": "v_cf5731cf17cd42f2",
+        "row_count": 300
+      },
+      "retail_revenue_by_product_and_country": {
+        "dataset_id": "ds_e70d6c7e27bb4b5b",
+        "version_id": "v_125f23ac7d7f4a13",
+        "row_count": 4758
+      }
+    },
+    "timings_seconds": {
+      "import": 0.11,
+      "planner": 50.19,
+      "job": 1.27,
+      "total": 51.78
+    },
+    "cost": {
+      "planner_usd": 0.13965,
+      "jev_usd_from_measured_tokens": 0.007756,
+      "jev_usd_reported_by_job": 0.007756,
+      "jev_input_tokens": 184665,
+      "jev_requests": 30,
+      "jev_cache_hits": 0,
+      "total_usd": 0.147406
+    },
+    "error": null
+  },
+  "oneshot": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "status": "completed",
+    "usage": {
+      "input_tokens": 75049,
+      "cached_input_tokens": 0,
+      "output_tokens": 86409,
+      "reasoning_tokens": 80285,
+      "total_tokens": 161458
+    },
+    "cost": {
+      "usd": 5.07094,
+      "tier": "short",
+      "input_tokens": 75049,
+      "cached_input_tokens": 0,
+      "output_tokens": 86409,
+      "reasoning_tokens": 80285,
+      "prices_per_mtok": {
+        "input": 10.0,
+        "cached_input": 1.0,
+        "output": 50.0
+      }
+    },
+    "latency_seconds": 1537.8,
+    "input_tokens_estimate": 36216,
+    "response_id": "resp_0fbf5c967f5d8140006ab1333a462487d29ce38b0f4b9eabef",
+    "error": null,
+    "raw_text_head": "{\n  \"product_categories\": [\n    {\"category\":\"Home & lifestyle gifts\",\"row_id\":1},\n    {\"category\":\"Home & lifestyle gifts\",\"row_id\":2},\n    {\"category\":\"Home & lifestyle gifts\",\"row_id\":3},\n    {\"category\":\"Toys, crafts & stationery\",\"row_id\":4},\n    {\"category\":\"Home & lifestyle gifts\",\"row_id\":5},\n    {\"category\":\"Home & lifestyle gifts\",\"row_id\":6},\n    {\"category\":\"Home & lifestyle gifts\",\"row",
+    "output_summary": {
+      "product_categories": "list[300]",
+      "revenue_by_category_and_country": "list[83]"
+    }
+  },
+  "comparison": {
+    "notes": [
+      "Bounded to the 300 highest-revenue products and their 4758 product x country revenue rows. Both approaches define their own gift taxonomy, so labels are compared with clustering agreement (ARI / NMI) rather than exact match; the revenue table is recomputed exactly from each approach's own labels to check the arithmetic."
+    ],
+    "pipeline": {
+      "from_step": "classify_products",
+      "question": "gift_category",
+      "products_labeled": 300,
+      "categories": {
+        "home_decor": 89,
+        "kitchen_dining": 65,
+        "bags_fashion_accessories": 46,
+        "seasonal_party": 23,
+        "toys_games": 19,
+        "candles_fragrance": 16,
+        "arts_crafts": 16,
+        "other": 14,
+        "stationery_gift_wrap": 5,
+        "garden_outdoor": 5,
+        "beauty_jewellery": 2
+      },
+      "aggregate_step": "category_country_totals",
+      "revenue_check": {
+        "cells_claimed": 376,
+        "cells_expected": 376,
+        "cells_with_expected_counterpart": 376,
+        "cells_missing": 0,
+        "cells_extra": 0,
+        "exact_to_cent": 376,
+        "within_0_5_percent": 376,
+        "max_abs_error": 0.0,
+        "total_revenue_claimed": 10328259.82,
+        "total_revenue_expected": 10328259.82,
+        "worst_cells": []
+      }
+    },
+    "oneshot": {
+      "products_labeled": 300,
+      "categories": {
+        "Home & lifestyle gifts": 273,
+        "Toys, crafts & stationery": 26,
+        "Non-gift fees": 1
+      },
+      "revenue_check": {
+        "cells_claimed": 83,
+        "cells_expected": 83,
+        "cells_with_expected_counterpart": 83,
+        "cells_missing": 0,
+        "cells_extra": 0,
+        "exact_to_cent": 53,
+        "within_0_5_percent": 55,
+        "max_abs_error": 46502.8,
+        "total_revenue_claimed": 10248996.53,
+        "total_revenue_expected": 10328259.82,
+        "worst_cells": [
+          {
+            "category": "Home & lifestyle gifts",
+            "country": "United Kingdom",
+            "claimed": 8261674.71,
+            "expected": 8308177.51
+          },
+          {
+            "category": "Home & lifestyle gifts",
+            "country": "EIRE",
+            "claimed": 248087.24,
+            "expected": 256510.87
+          },
+          {
+            "category": "Home & lifestyle gifts",
+            "country": "France",
+            "claimed": 140824.85,
+            "expected": 144971.84
+          },
+          {
+            "category": "Home & lifestyle gifts",
+            "country": "Germany",
+            "claimed": 157950.09,
+            "expected": 161944.41
+          },
+          {
+            "category": "Home & lifestyle gifts",
+            "country": "Sweden",
+            "claimed": 25534.82,
+            "expected": 28515.46
+          },
+          {
+            "category": "Home & lifestyle gifts",
+            "country": "Belgium",
+            "claimed": 24025.03,
+            "expected": 26910.97
+          }
+        ]
+      }
+    },
+    "agreement": {
+      "products_labeled_by_both": 300,
+      "adjusted_rand_index": 0.0636,
+      "nmi": 0.2377
+    },
+    "examples": {
+      "label_pairs": [
+        {
+          "row_id": 1,
+          "description": "REGENCY CAKESTAND 3 TIER",
+          "pipeline": "kitchen_dining",
+          "oneshot": "Home & lifestyle gifts"
+        },
+        {
+          "row_id": 2,
+          "description": "WHITE HANGING HEART T-LIGHT HOLDER",
+          "pipeline": "candles_fragrance",
+          "oneshot": "Home & lifestyle gifts"
+        },
+        {
+          "row_id": 3,
+          "description": "JUMBO BAG RED WHITE SPOTTY ",
+          "pipeline": "bags_fashion_accessories",
+          "oneshot": "Home & lifestyle gifts"
+        },
+        {
+          "row_id": 4,
+          "description": "PAPER CRAFT , LITTLE BIRDIE",
+          "pipeline": "arts_crafts",
+          "oneshot": "Toys, crafts & stationery"
+        },
+        {
+          "row_id": 5,
+          "description": "PARTY BUNTING",
+          "pipeline": "seasonal_party",
+          "oneshot": "Home & lifestyle gifts"
+        },
+        {
+          "row_id": 6,
+          "description": "ASSORTED COLOUR BIRD ORNAMENT",
+          "pipeline": "home_decor",
+          "oneshot": "Home & lifestyle gifts"
+        },
+        {
+          "row_id": 7,
+          "description": "PAPER CHAIN KIT 50'S CHRISTMAS ",
+          "pipeline": "arts_crafts",
+          "oneshot": "Home & lifestyle gifts"
+        },
+        {
+          "row_id": 8,
+          "description": "CHILLI LIGHTS",
+          "pipeline": "seasonal_party",
+          "oneshot": "Home & lifestyle gifts"
+        },
+        {
+          "row_id": 9,
+          "description": "MEDIUM CERAMIC TOP STORAGE JAR",
+          "pipeline": "kitchen_dining",
+          "oneshot": "Home & lifestyle gifts"
+        },
+        {
+          "row_id": 10,
+          "description": "POPCORN HOLDER , SMALL ",
+          "pipeline": "kitchen_dining",
+          "oneshot": "Home & lifestyle gifts"
+        }
+      ]
+    }
+  },
+  "generated_at": "2026-09-21T14:17:05Z"
+}

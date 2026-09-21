@@ -1,0 +1,293 @@
+{
+  "scenario": "support_requests",
+  "title": "Customer support: cancel because unaffordable",
+  "prompt": "Find customers trying to cancel an order because they cannot afford it.",
+  "inputs": [
+    {
+      "name": "support_requests",
+      "rows": 3000,
+      "columns": [
+        "row_id",
+        "flags",
+        "instruction"
+      ],
+      "approx_tokens": 42683
+    }
+  ],
+  "notes": [
+    "9 rows satisfy the proxy gold definition among 3000 messages."
+  ],
+  "pipeline": {
+    "plan": {
+      "plan_version": "1",
+      "source": {
+        "dataset_id": "ds_6c2dc9bb28d14b59",
+        "version_id": "v_99b43055e6d946c5"
+      },
+      "model": "jev-1.13.0",
+      "steps": [
+        {
+          "id": "assess_cancellation",
+          "input": "source",
+          "op": "semantic_annotate",
+          "columns": [
+            "instruction"
+          ],
+          "questions": [
+            {
+              "name": "cancel_due_to_affordability",
+              "kind": "boolean",
+              "instruction": "Does the customer explicitly or implicitly want to cancel an order because they cannot afford it? The text may be in any language; judge its meaning, including typos and indirect phrasing.",
+              "criteria": {
+                "true": "The customer wants or needs to cancel, withdraw, or stop an order because of insufficient funds, financial hardship, or inability to afford the purchase. Count implied cancellation requests: 'I cannot afford order 123' qualifies even without the word cancel. Requests to cancel because the purchase is beyond their budget or they lack money to pay also qualify.",
+                "false": "The text requests order cancellation without an affordability reason, cancellation for another reason, account or subscription closure rather than order cancellation, or general pricing, cancellation-fee, refund, or payment information without an explicit or implied affordability-driven order cancellation. A technical payment failure or a complaint that something is expensive alone does not establish this condition."
+              },
+              "thresholds": {
+                "true_min": 0.7,
+                "false_max": 0.3
+              },
+              "options": null,
+              "min_confidence": 0.0,
+              "levels": null
+            }
+          ],
+          "on_missing": "unknown"
+        },
+        {
+          "id": "matching_instructions",
+          "input": "assess_cancellation",
+          "op": "filter",
+          "where": {
+            "op": "eq",
+            "args": [
+              {
+                "column": "cancel_due_to_affordability.value"
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          "unknown_policy": "separate"
+        },
+        {
+          "id": "results",
+          "input": "matching_instructions",
+          "op": "project",
+          "columns": [
+            "row_id",
+            "instruction",
+            "cancel_due_to_affordability.value",
+            "cancel_due_to_affordability.score",
+            "cancel_due_to_affordability.status"
+          ]
+        }
+      ],
+      "output": "results",
+      "title": "Order cancellations due to affordability",
+      "description": "Find instructions expressing an explicit or implied desire to cancel an order because the customer cannot afford it. The dataset has no customer identifiers, so results identify matching instruction rows; uncertain cases go to review."
+    },
+    "planner": {
+      "model": "gpt-6-astra",
+      "reasoning_effort": "high",
+      "latency_ms": 15083,
+      "usage": {
+        "input_tokens": 2221,
+        "output_tokens": 605,
+        "reasoning_tokens": 0
+      },
+      "attempts": 1,
+      "title": "Order cancellations due to affordability",
+      "description": "Find instructions expressing an explicit or implied desire to cancel an order because the customer cannot afford it. The dataset has no customer identifiers, so results identify matching instruction rows; uncertain cases go to review.",
+      "cost": {
+        "usd": 0.05246,
+        "tier": "short",
+        "input_tokens": 2221,
+        "cached_input_tokens": 0,
+        "output_tokens": 605,
+        "reasoning_tokens": 0,
+        "prices_per_mtok": {
+          "input": 10.0,
+          "cached_input": 1.0,
+          "output": 50.0
+        }
+      }
+    },
+    "estimate": {
+      "source_rows": 3000,
+      "semantic_rows": 3000,
+      "inference_attempts": 3000,
+      "provider_requests": 300,
+      "input_tokens": 1046975,
+      "estimated_cost_usd": 0.043973,
+      "candidate_pairs": 0,
+      "cache_hits_estimated": 0,
+      "stages": [
+        {
+          "step": "assess_cancellation",
+          "kind": "annotate",
+          "rows": 3000,
+          "rows_bound": "exact",
+          "questions": 1,
+          "inference_attempts": 3000,
+          "cache_hits_estimated": 0,
+          "requests": 300,
+          "input_tokens": 1046975,
+          "mean_tokens_per_row": 345.0,
+          "estimated_cost_usd": 0.043973
+        }
+      ],
+      "quota_floor_seconds": 15.0
+    },
+    "job": {
+      "job_id": "job_bbf41685aec54c32",
+      "state": "succeeded",
+      "terminal_reason": null,
+      "usage": {
+        "input_tokens": 791900,
+        "output_tokens": 77874,
+        "provider_requests": 300,
+        "spent_usd": 0.03326,
+        "reserved_usd": 0.0,
+        "cache_hits": 51,
+        "ambiguous_attempts": 0
+      },
+      "progress": {
+        "stages": {
+          "assess_cancellation": {
+            "rows_total": 3000,
+            "rows_succeeded": 3000,
+            "rows_uncertain": 0,
+            "rows_missing": 0,
+            "rows_failed": 0,
+            "rows_skipped": 0,
+            "rows_pending": 0,
+            "cache_hits": 51,
+            "inference_attempts": 2949,
+            "provider_requests": 300,
+            "pairs": 0,
+            "chunks_committed": 16,
+            "chunks_total": 16,
+            "rows_beyond_cap": 0,
+            "complete": true
+          }
+        },
+        "rows_examined": 3000,
+        "rows_remaining": 0,
+        "errors": 0
+      },
+      "error_summary": null,
+      "errors": []
+    },
+    "step_rows": {
+      "results": 7,
+      "assess_cancellation": 3000,
+      "matching_instructions": 7
+    },
+    "datasets": {
+      "support_requests": {
+        "dataset_id": "ds_6c2dc9bb28d14b59",
+        "version_id": "v_99b43055e6d946c5",
+        "row_count": 3000
+      }
+    },
+    "timings_seconds": {
+      "import": 0.07,
+      "planner": 15.19,
+      "job": 13.42,
+      "total": 28.74
+    },
+    "cost": {
+      "planner_usd": 0.05246,
+      "jev_usd_from_measured_tokens": 0.03326,
+      "jev_usd_reported_by_job": 0.03326,
+      "jev_input_tokens": 791900,
+      "jev_requests": 300,
+      "jev_cache_hits": 51,
+      "total_usd": 0.08572
+    },
+    "error": null
+  },
+  "oneshot": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "status": "completed",
+    "usage": {
+      "input_tokens": 47046,
+      "cached_input_tokens": 0,
+      "output_tokens": 792,
+      "reasoning_tokens": 752,
+      "total_tokens": 47838
+    },
+    "cost": {
+      "usd": 0.51006,
+      "tier": "short",
+      "input_tokens": 47046,
+      "cached_input_tokens": 0,
+      "output_tokens": 792,
+      "reasoning_tokens": 752,
+      "prices_per_mtok": {
+        "input": 10.0,
+        "cached_input": 1.0,
+        "output": 50.0
+      }
+    },
+    "latency_seconds": 26.8,
+    "input_tokens_estimate": 42888,
+    "response_id": "resp_0aa0ca3c70ac1a13006ab132f6671887d292b4baa4ba552657",
+    "error": null,
+    "raw_text_head": "{\"matching_row_ids\":[22,262,663,1009,2479,2887,2937,2951,2973]}",
+    "output_summary": {
+      "matching_row_ids": "list[9]"
+    }
+  },
+  "comparison": {
+    "gold_definition": "intent == cancel_order AND text mentions affordability (regex); the Bitext intent labels were removed from both inputs",
+    "gold_size": 9,
+    "pipeline": {
+      "selected": 7,
+      "from_step": "results",
+      "tp": 7,
+      "fp": 0,
+      "fn": 2,
+      "precision": 1.0,
+      "recall": 0.7778,
+      "f1": 0.875,
+      "review_view": {
+        "cancel_due_to_affordability": {}
+      },
+      "gold_rows_in_review_view": 0,
+      "missed_gold_in_review_view": 0
+    },
+    "oneshot": {
+      "selected": 9,
+      "tp": 9,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "agreement": {
+      "both": 7,
+      "only_a": 0,
+      "only_b": 2,
+      "jaccard": 0.7778
+    },
+    "examples": {
+      "only_pipeline": [],
+      "only_oneshot": [
+        {
+          "row_id": 663,
+          "text": "I can't pay for purchase {{Order Number}}"
+        },
+        {
+          "row_id": 1009,
+          "text": "I can no longer pay for purchase {{Order Number}}"
+        }
+      ],
+      "missed_by_both": []
+    }
+  },
+  "generated_at": "2026-09-21T14:17:05Z"
+}
