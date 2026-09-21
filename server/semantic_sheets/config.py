@@ -75,6 +75,9 @@ class Settings:
     worker_lease_seconds: int = _env_int("SS_WORKER_LEASE_SECONDS", 60)
     cors_origins: str = _env("SS_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
     public_base_url: str = _env("SS_PUBLIC_BASE_URL", "http://127.0.0.1:8000")
+    # MCP transport: bearer auth is required on every tool call, so DNS-rebinding host checks are off by default;
+    # set SS_MCP_ALLOWED_HOSTS="host:port,..." to turn them on for a public deployment.
+    mcp_allowed_hosts: str = _env("SS_MCP_ALLOWED_HOSTS", "")
 
     def __post_init__(self) -> None:
         if not self.database_url:

@@ -30,8 +30,8 @@ from .schema import (
 
 ROW_ID = "_row_id"
 SEMANTIC_OPS = {"semantic_annotate", "semantic_match"}
-TOKENS_PER_CHAR = 0.28  # conservative planning constant (~3.6 chars/token for English prose)
-ROW_OVERHEAD_TOKENS = 24
+TOKENS_PER_CHAR = 0.45  # conservative planning constant; measured 0.31-0.42 on prose and product titles
+ROW_OVERHEAD_TOKENS = 40
 REQUEST_OVERHEAD_TOKENS = 60
 
 

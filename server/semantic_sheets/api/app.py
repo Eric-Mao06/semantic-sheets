@@ -40,9 +40,14 @@ def create_app(*, mount_mcp: bool = True, serve_web: bool = True) -> FastAPI:
     if mount_mcp:
         from ..mcp_server import build_mcp_server
 
+        from mcp.server.transport_security import TransportSecuritySettings
+
         mcp_server = build_mcp_server()
+        hosts = [h.strip() for h in cfg.mcp_allowed_hosts.split(",") if h.strip()]
+        security = TransportSecuritySettings(enable_dns_rebinding_protection=bool(hosts), allowed_hosts=hosts,
+                                             allowed_origins=[o.strip() for o in cfg.cors_origins.split(",") if o.strip()])
         mcp_app = mcp_server.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True,
-                                                 transport_security=None)
+                                                 transport_security=security)
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):

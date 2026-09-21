@@ -201,7 +201,8 @@ def _state_rows(state: Any) -> dict[str, str]:
 
 _WORD = re.compile(r"[a-z]{4,}")
 STOP = {"does", "this", "that", "with", "from", "text", "about", "which", "what", "have", "their", "there", "into",
-        "customer", "describe", "describes", "message", "consider", "only", "ignore", "other", "rows", "row"}
+        "customer", "describe", "describes", "message", "consider", "only", "ignore", "other", "rows", "row", "every", "pair",
+        "pairs", "left", "right"}
 
 
 def _words(s: str) -> set[str]:

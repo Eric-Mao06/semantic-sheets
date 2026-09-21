@@ -131,7 +131,22 @@ def sniff(path: Path, opts: ParseOptions) -> dict[str, Any]:
         extra_sql = (", " + ", ".join(extra)) if extra else ""
         row = con.execute(f"SELECT * FROM sniff_csv({sql_str(path)}, sample_size=20000{extra_sql})").fetchone()
         cols = [d[0] for d in con.description]
-        return dict(zip(cols, row))
+        out = dict(zip(cols, row))
+        if opts.delimiter is None and len(out.get("Columns") or []) <= 1:
+            # A degenerate dialect (one column) usually means malformed rows confused the sniffer. Prefer the
+            # common delimiter that yields the most columns so those rows surface as rejects instead.
+            best_n, best_d = len(out.get("Columns") or []), None
+            for d in (",", "\t", ";", "|"):
+                try:
+                    desc = con.execute(f"DESCRIBE SELECT * FROM read_csv({sql_str(path)}, delim={sql_str(d)}, header=true, "
+                                       f"ignore_errors=true, sample_size=20000{extra_sql})").fetchall()
+                except duckdb.Error:
+                    continue
+                if len(desc) > best_n:
+                    best_n, best_d = len(desc), d
+            if best_d is not None:
+                out = {**out, "Delimiter": best_d, "Quote": '"', "Columns": [{"name": r[0], "type": r[1]} for r in desc]}
+        return out
     finally:
         con.close()
 

@@ -258,7 +258,10 @@ def main() -> None:  # standalone streamable HTTP server (also mounted at /mcp b
     import uvicorn
 
     server = build_mcp_server()
-    app = server.streamable_http_app(streamable_http_path="/mcp", stateless_http=True, json_response=True, transport_security=None)
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    app = server.streamable_http_app(streamable_http_path="/mcp", stateless_http=True, json_response=True,
+                                     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
     uvicorn.run(app, host="0.0.0.0", port=8001)
 
 
