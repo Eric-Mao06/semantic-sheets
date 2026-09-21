@@ -1,0 +1,32 @@
+[project]
+name = "semantic-sheets"
+version = "0.1.0"
+description = "Semantic spreadsheet MVP: plain-language operations over uploaded tables, executed by Jev and exact code, exposed as a web sheet and an MCP server."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.141.1",
+  "uvicorn[standard]==0.53.0",
+  "sqlalchemy==2.0.54",
+  "duckdb==1.5.5",
+  "pyarrow==25.0.1",
+  "pydantic==2.13.5",
+  "httpx==0.28.1",
+  "openai==3.16.2",
+  "mcp==2.2.0",
+  "python-multipart",
+  "sse-starlette",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "psycopg[binary]"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["semantic_sheets*"]

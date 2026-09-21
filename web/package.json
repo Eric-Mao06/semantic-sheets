@@ -1,0 +1,31 @@
+{
+  "name": "semantic-sheets-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 5173",
+    "typecheck": "tsc --noEmit",
+    "walkthrough": "playwright test --config=e2e/playwright.config.ts"
+  },
+  "dependencies": {
+    "@glideapps/glide-data-grid": "^6.0.3",
+    "lodash": "^4.17.21",
+    "marked": "^4.3.0",
+    "papaparse": "^5.5.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-responsive-carousel": "^3.2.23"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "^18.3.27",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.0"
+  }
+}

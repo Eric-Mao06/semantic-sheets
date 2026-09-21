@@ -1,0 +1,18 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+# data & runtime
+server/data/
+data/
+*.log
+# node
+node_modules/
+web/dist/
+# playwright
+web/test-results/
+walkthrough/
+.env
+web/e2e/_smoke.mjs
