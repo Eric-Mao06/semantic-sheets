@@ -15,7 +15,7 @@ type Props = {
 
 type Loaded = { kind: "number"; min: number; max: number; rows: number } | { kind: "label"; labels: string[]; rows: number };
 
-const NUMERIC = new Set(["number", "integer", "float", "double", "boolean", "score"]);
+const NUMERIC = new Set(["integer", "double", "boolean"]);
 
 /**
  * Threshold / label filter and sort over complete result vectors held in a Web Worker. Filtering and sorting
@@ -46,7 +46,7 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
   }, [worker]);
 
   const candidates = useMemo(
-    () => columns.filter((c) => c.name.endsWith(".value") || c.name.endsWith(".confidence") || NUMERIC.has(c.type) || c.type === "string"),
+    () => columns.filter((c) => c.name.endsWith(".value") || c.name.endsWith(".confidence") || NUMERIC.has(c.type) || c.type === "text"),
     [columns],
   );
 

@@ -376,6 +376,23 @@ def health() -> dict[str, Any]:
 
 app.mount("/mcp", _mcp_app)
 
+
+class _McpPathMiddleware:
+    """Accept POST/GET/DELETE on exactly /mcp (no trailing slash), as MCP clients send it."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("path") == "/mcp":
+            scope = dict(scope)
+            scope["path"] = "/mcp/"
+            scope["raw_path"] = b"/mcp/"
+        await self.inner(scope, receive, send)
+
+
+app.add_middleware(_McpPathMiddleware)
+
 _web_dist = Path(__file__).resolve().parents[2] / "web" / "dist"
 if _web_dist.exists():
     app.mount("/", StaticFiles(directory=str(_web_dist), html=True), name="web")

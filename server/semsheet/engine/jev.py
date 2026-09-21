@@ -61,7 +61,7 @@ def row_payload(row: dict[str, Any], columns: list[str]) -> dict[str, Any] | Non
 
 
 def question_signature(q: Question) -> str:
-    body = q.model_dump(exclude={"thresholds", "min_confidence"})
+    body = q.model_dump(exclude={"name", "thresholds", "min_confidence"})  # the name never reaches the provider
     return sha256(json.dumps(body, sort_keys=True, ensure_ascii=False))
 
 

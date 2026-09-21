@@ -333,7 +333,7 @@ class Services:
         except PlanError as e:
             raise ServiceError("invalid_plan", e.message, 422, {"issues": [e.to_issue()]})
         warnings: list[str] = []
-        estimate = self._estimate(plan, compiled, ctx, ver, limits or JobLimits(), warnings)
+        estimate = self._estimate(plan, compiled, ctx, ver, limits or JobLimits(), warnings, ws.id)
         # Ensure the SQL compiles for every step (types, functions).
         try:
             with connect(compiled) as con:
@@ -357,12 +357,21 @@ class Services:
             "warnings": warnings,
             "required_scopes": ["read", "run"] + (["export"] if False else []),
             "output_columns": [{"name": c.name, "type": c.type, "role": c.role} for c in output_rel.columns],
-            "review_views": list(compiled.review_relations.keys()),
+            "review_views": list(compiled.review_relations.values()),
         }
 
-    def _estimate(self, plan: Plan, compiled: Compiled, ctx: Any, ver: dict[str, Any], limits: JobLimits, warnings: list[str]) -> PlanEstimate:
+    def _cache_hits(self, keys: list[str]) -> set[str]:
+        out: set[str] = set()
+        for i in range(0, len(keys), 500):
+            batch = keys[i : i + 500]
+            marks = ",".join("?" * len(batch))
+            out.update(r["cache_key"] for r in self.db.query(f"SELECT cache_key FROM prediction_cache WHERE cache_key IN ({marks})", batch))
+        return out
+
+    def _estimate(self, plan: Plan, compiled: Compiled, ctx: Any, ver: dict[str, Any], limits: JobLimits, warnings: list[str], ws_id: str = "") -> PlanEstimate:
         rows_per_request = limits.rows_per_request or settings.jev_rows_per_request
         source_rows = int(ver["row_count"])
+        cache_hits_total = 0
         stages: list[dict[str, Any]] = []
         total_tokens = 0
         total_requests = 0
@@ -394,12 +403,23 @@ class Services:
                     sample = con.execute(f"SELECT {cols} FROM ({count_sql}) t USING SAMPLE reservoir(120 ROWS) REPEATABLE (3)").fetchall()
                     per_item = [jev.item_tokens({c: (str(v) if v is not None else "") for c, v in zip(step.columns, r)}, step.questions) for r in sample] or [60]
                     mean_item = sum(per_item) / len(per_item)
-                    requests = math.ceil(n_rows_capped / rows_per_request) if n_rows_capped else 0
-                    tokens = int(n_rows_capped * mean_item + requests * 40)
+                    # Cache hit ratio measured on the same sample, extrapolated to the capped row count.
+                    keys = []
+                    for r in sample:
+                        payload = jev.row_payload(dict(zip(step.columns, r)), step.columns)
+                        if payload is not None:
+                            keys.extend(jev.cache_key(ws_id, plan.model, qn, payload) for qn in step.questions)
+                    hit_ratio = (len(self._cache_hits(keys)) / len(keys)) if keys else 0.0
                     attempts = n_rows_capped * len(step.questions)
+                    hits = int(round(attempts * hit_ratio))
+                    rows_to_send = n_rows_capped * (1.0 - hit_ratio)
+                    requests = math.ceil(rows_to_send / rows_per_request) if rows_to_send else 0
+                    tokens = int(rows_to_send * mean_item + requests * 40)
+                    cache_hits_total += hits
                     stages.append({"step": step.id, "kind": "annotate", "rows": n_rows_capped, "rows_bound": bound, "questions": len(step.questions),
-                                   "inference_attempts": attempts, "requests": requests, "input_tokens": tokens, "mean_tokens_per_row": round(mean_item, 1),
-                                   "estimated_cost_usd": round(jev.cost_usd(tokens), 6)})
+                                   "inference_attempts": attempts - hits, "cache_hits_estimated": hits, "requests": requests, "input_tokens": tokens,
+                                   "mean_tokens_per_row": round(mean_item, 1), "estimated_cost_usd": round(jev.cost_usd(tokens), 6)})
+                    attempts -= hits
                 else:
                     rpath, rschema = ctx.datasets[step.right.dataset_id]
                     right_rows = int(con.execute(f"SELECT count(*) FROM read_parquet({lit(str(rpath))})").fetchone()[0])
@@ -434,6 +454,7 @@ class Services:
         return PlanEstimate(
             source_rows=source_rows, semantic_rows=semantic_rows, inference_attempts=total_attempts, provider_requests=total_requests,
             input_tokens=total_tokens, estimated_cost_usd=round(est_cost, 6), candidate_pairs=pairs_total, stages=stages, quota_floor_seconds=round(floor, 2),
+            cache_hits_estimated=cache_hits_total,
         )
 
     def plans_compile(self, ws: Workspace, dataset_id: str, version_id: str | None, prompt: str, previous_plan: dict[str, Any] | None = None, max_attempts: int = 3) -> dict[str, Any]:

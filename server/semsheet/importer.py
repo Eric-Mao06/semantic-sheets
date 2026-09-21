@@ -88,23 +88,50 @@ def sniff(path: Path, options: ImportOptions) -> tuple[str, bool, list[str]]:
             row = None
     delimiter = options.delimiter
     header = options.header
+    opener = open if path.suffix != ".gz" else __import__("gzip").open
+    with opener(path, "rt", encoding=options.encoding, errors="replace") as fh:  # type: ignore[operator]
+        sample = fh.read(64 * 1024)
+    first_line = next((ln for ln in sample.splitlines() if ln.strip()), "")
     if row is not None:
-        delimiter = delimiter or row[0]
+        # DuckDB's sniffer can settle on a delimiter that never occurs (one column per line) when the file is
+        # inconsistent; only trust it when the delimiter actually appears in the header line.
+        if not delimiter and row[0] and (row[0] in first_line or len(first_line) == 0):
+            delimiter = row[0]
         header = header if header is not None else bool(row[1])
     if not delimiter:
-        opener = open if path.suffix != ".gz" else __import__("gzip").open
-        with opener(path, "rt", encoding=options.encoding, errors="replace") as fh:  # type: ignore[operator]
-            sample = fh.read(64 * 1024)
-        try:
-            delimiter = csv.Sniffer().sniff(sample, delimiters=",\t;|").delimiter
-        except csv.Error:
-            delimiter = "\t" if path.suffix.lower() in (".tsv", ".tab") else ","
+        # Prefer the candidate that splits the header (first line) into the most fields and appears on the
+        # majority of sampled lines; fall back to the extension-based default.
+        lines = [ln for ln in sample.splitlines() if ln.strip()][:200]
+        best: tuple[int, int, str] | None = None
+        for cand in (",", "\t", ";", "|"):
+            if not lines or cand not in lines[0]:
+                continue
+            consistent = sum(1 for ln in lines[1:] if ln.count(cand) == lines[0].count(cand))
+            score = (consistent, lines[0].count(cand), cand)
+            if best is None or score[:2] > best[:2]:
+                best = score
+        delimiter = best[2] if best else ("\t" if path.suffix.lower() in (".tsv", ".tab") else ",")
     if header is None:
         header = True
     return delimiter, header, []
 
 
-def _read_csv_sql(path: Path, delimiter: str, header: bool, options: ImportOptions, rejects: bool) -> str:
+def header_names(path: Path, delimiter: str, header: bool, options: ImportOptions) -> list[str]:
+    """Column names from the first record (or positional names when there is no header), read with the
+    standard csv module so that the parse below can run with an explicit, sniff-free column list."""
+    opener = open if path.suffix != ".gz" else __import__("gzip").open
+    with opener(path, "rt", encoding=options.encoding, errors="replace", newline="") as fh:  # type: ignore[operator]
+        reader = csv.reader(fh, delimiter=delimiter, quotechar=options.quote)
+        try:
+            first = next(reader)
+        except StopIteration:
+            return []
+    if header:
+        return [c if c is not None else "" for c in first]
+    return [f"column_{i + 1}" for i in range(len(first))]
+
+
+def _read_csv_sql(path: Path, delimiter: str, header: bool, options: ImportOptions, rejects: bool, columns: list[str] | None = None) -> str:
     nulls = "[" + ",".join(_sql_str(n) for n in options.null_strings) + "]"
     parts = [
         _sql_str(str(path)),
@@ -112,10 +139,16 @@ def _read_csv_sql(path: Path, delimiter: str, header: bool, options: ImportOptio
         f"header={'true' if header else 'false'}",
         "all_varchar=true",
         f"quote={_sql_str(options.quote)}",
+        f"escape={_sql_str(options.quote)}",
         f"nullstr={nulls}",
         "sample_size=-1",
-        "strict_mode=false",
+        "strict_mode=true",
     ]
+    if columns:
+        # Explicit column list: no dialect sniffing, so malformed rows are rejected and reported instead of
+        # changing how the whole file is read.
+        cols = ", ".join(f"{_sql_str(c)}: 'VARCHAR'" for c in columns)
+        parts += ["auto_detect=false", f"columns={{{cols}}}"]
     if rejects:
         parts += ["ignore_errors=true", "store_rejects=true"]
     return f"read_csv({', '.join(parts)})"
@@ -181,6 +214,8 @@ def import_file(source_path: Path, dest_parquet: Path, options: ImportOptions | 
     options = options or ImportOptions()
     if source_path.stat().st_size > settings.max_file_bytes:
         raise ImportError_("file_too_large", f"File exceeds {settings.max_file_bytes} bytes")
+    if source_path.stat().st_size == 0:
+        raise ImportError_("empty_file", "The file is empty")
     delimiter, header, _ = sniff(source_path, options)
     warnings: list[str] = []
 
@@ -189,7 +224,12 @@ def import_file(source_path: Path, dest_parquet: Path, options: ImportOptions | 
         con.execute("SET threads=4")
         # Full parse with rejects captured so we can report malformed rows.
         try:
-            con.execute(f"CREATE TEMP TABLE raw AS SELECT * FROM {_read_csv_sql(source_path, delimiter, header, options, rejects=True)}")
+            names = header_names(source_path, delimiter, header, options)
+            if not names:
+                raise ImportError_("empty_file", "The file has no header row")
+            if len(set(n.lower() for n in names)) != len(names) or any(not n.strip() for n in names):
+                names = sanitize_column_names(names)
+            con.execute(f"CREATE TEMP TABLE raw AS SELECT * FROM {_read_csv_sql(source_path, delimiter, header, options, rejects=True, columns=names)}")
         except duckdb.Error as e:
             raise ImportError_("parse_failed", f"Could not parse file: {e}")
         rejects_rows: list[dict[str, Any]] = []
@@ -219,6 +259,8 @@ def import_file(source_path: Path, dest_parquet: Path, options: ImportOptions | 
             raise ImportError_("reserved_column", f"Column name {ROW_ID} is reserved")
 
         total = con.execute("SELECT count(*) FROM raw").fetchone()[0]
+        if total == 0:
+            raise ImportError_("empty_file", "The file has a header but no data rows")
         truncated_to = None
         if total > settings.max_import_rows:
             if options.row_limit is None or options.row_limit > settings.max_import_rows:
@@ -295,7 +337,8 @@ def preview_rows(path: Path, options: ImportOptions | None = None, limit: int = 
     options = options or ImportOptions()
     delimiter, header, _ = sniff(path, options)
     with duckdb.connect() as con:
-        rel = con.execute(f"SELECT * FROM {_read_csv_sql(path, delimiter, header, options, rejects=True)} LIMIT {int(limit)}")
+        names = header_names(path, delimiter, header, options)
+        rel = con.execute(f"SELECT * FROM {_read_csv_sql(path, delimiter, header, options, rejects=True, columns=sanitize_column_names(names))} LIMIT {int(limit)}")
         cols = [d[0] for d in rel.description]
         rows = rel.fetchall()
     return {"delimiter": delimiter, "header": header, "columns": sanitize_column_names(cols), "rows": [list(r) for r in rows], "provisional": True}
