@@ -215,7 +215,7 @@ export function Sheet({ datasetId, initialRv, workspace, onWorkspaceChange }: { 
         {notice && <div className="banner info" data-testid="notice">{notice} <button style={{ marginLeft: 8 }} onClick={() => setNotice(null)}>×</button></div>}
         {exportInfo && <div className="banner" data-testid="export-banner">Export ready: <a href={exportInfo.url} download>{exportInfo.format} · {exportInfo.rows.toLocaleString()} rows</a> · manifest marks it {exportInfo.complete ? "complete" : "PARTIAL"} <button style={{ marginLeft: 8 }} onClick={() => setExportInfo(null)}>×</button></div>}
         {cache.provisional && <div className="banner">Provisional: rankings and counts update while the job runs ({job?.progress?.pending ?? "?"} rows remaining).</div>}
-        <div style={{ position: "absolute", inset: 0, top: (notice ? 30 : 0) + (exportInfo ? 30 : 0) + (cache.provisional ? 30 : 0) }}>
+        <div className="gridarea">
           {columns.length > 0 && <Grid ref={gridRef} columns={columns} cache={cache} rows={rows} editable
             onActivate={(_o, rid) => { setSelected(rid); setTab("inspect"); }}
             onEdit={(rid, col, val) => correct(rid, col, val)} />}

@@ -99,7 +99,12 @@ band. Lexical top-5 candidate recall on the offer tables is 66.6%, which is why 
 embedding index as the next retrieval step.
 
 Throughput: 5,000 Bitext rows with two questions in 13.3 s (376 rows/s, $0.053); 3,080 BANKING77 rows in
-~8 s; a 100k-row scan is a background job (about 4-5 minutes at this packing, quota permitting).
+~8 s. The 100,000-row MCP acceptance scenario (`scripts/mcp_acceptance.py`, Online Retail II, boolean +
+category) succeeded in 82 s with 570 provider requests and $0.038 because repeated descriptions hit the
+cache; the calling model saw 25 tool responses totalling 53 KB (about 13k tokens) and no raw rows. A
+100k scan of unique long text is a 4-5 minute background job at this packing, quota permitting.
+
+A recorded walkthrough with screenshots is in `docs/walkthrough/README.md`; `make walkthrough` re-records it.
 
 ## Layout
 

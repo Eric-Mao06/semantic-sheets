@@ -36,14 +36,18 @@ async function status() { return (await page.textContent("[data-testid=status-st
 async function clickCell(x, y) {
   // Glide draws cells on a canvas behind a scroller overlay: use raw mouse coordinates.
   const box = await page.locator("[data-testid=data-grid-canvas]").first().boundingBox();
-  await page.mouse.click(box.x + x, box.y + y);
+  await page.mouse.dblclick(box.x + x, box.y + y);
 }
 async function waitJob(timeoutMs = 600000) {
   const t0 = Date.now();
+  let seenActive = false;
   while (Date.now() - t0 < timeoutMs) {
-    const s = await page.textContent("[data-testid=job-state]").catch(() => "");
-    if (s && !/queued|running/.test(s)) return s;
-    await page.waitForTimeout(500);
+    const s = (await page.textContent("[data-testid=job-state]").catch(() => "")) || "";
+    const active = /queued|running/.test(s);
+    if (active) seenActive = true;
+    // A fresh submission briefly shows the previous job's terminal state; wait until the new job is seen active.
+    if (!active && (seenActive || Date.now() - t0 > 4000)) return s;
+    await page.waitForTimeout(400);
   }
   throw new Error("job did not finish");
 }

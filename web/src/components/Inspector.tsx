@@ -16,7 +16,8 @@ export function Inspector({ rv, rowId, onCorrect, onDatasetCell }: { rv: string 
   if (rowId === null) return <div className="panel muted">Select a cell to inspect the row, its raw model output, and corrections.</div>;
   if (error) return <div className="panel error">{error}</div>;
   if (!detail) return <div className="panel muted">Loading row {rowId}…</div>;
-  const entries = Object.entries(detail.values);
+  // Semantic outputs first (they are what the user is inspecting), then source columns.
+  const entries = Object.entries(detail.values).sort(([a], [b]) => Number(!a.includes(".")) - Number(!b.includes(".")) || 0);
   const raws = entries.filter(([k]) => k.endsWith(".raw"));
   return (
     <div className="panel" data-testid="inspector">

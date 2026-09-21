@@ -56,7 +56,8 @@ table.list a { color: var(--accent); text-decoration: none; }
 .topbar a { color: var(--accent); text-decoration: none; }
 .sheet > .commandbar { grid-column: 1 / 3; display: flex; gap: 8px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border); align-items: center; }
 .commandbar input { flex: 1; }
-.sheet > .gridwrap { grid-column: 1; position: relative; overflow: hidden; background: #fff; }
+.sheet > .gridwrap { grid-column: 1; position: relative; overflow: hidden; background: #fff; display: flex; flex-direction: column; min-height: 0; }
+.gridwrap > .gridarea { flex: 1; min-height: 0; position: relative; }
 .sheet > .side { grid-column: 2; grid-row: 3 / 4; border-left: 1px solid var(--border); background: var(--panel); overflow: auto; display: flex; flex-direction: column; }
 .sheet > .statusstrip { grid-column: 1 / 3; display: flex; gap: 16px; align-items: center; padding: 6px 12px; background: var(--panel); border-top: 1px solid var(--border); font-size: 12px; min-height: 34px; }
 .statusstrip .progress { width: 160px; }
