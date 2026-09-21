@@ -142,7 +142,10 @@ def wdc() -> None:
     left_rows = left_rows[:400]
     for l in left_rows:
         l["true_catalog_id"] = truth[l["offer_id"]]
-    right_rows = list(right.values())[:2000]
+    # WDC uses one id space for both sides of a pair, so an offer's own record can also appear as a catalog entry;
+    # drop those, otherwise matching becomes a trivial lookup of the identical record.
+    offer_ids = {l["offer_id"] for l in left_rows}
+    right_rows = [r for r in list(right.values())[:2000] if r["catalog_id"] not in offer_ids]
     needed = {l["true_catalog_id"] for l in left_rows}
     have = {r["catalog_id"] for r in right_rows}
     right_rows += [right[i] for i in needed - have]

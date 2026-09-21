@@ -31,6 +31,7 @@ Execution model:
 - A semantic step must be placed before the exact steps that use its outputs. A filter that references <name>.value uses unknown_policy "separate" (default) so uncertain rows go to a review view.
 - Ranking = score question + sort by <name>.score desc (tie-break is automatic). Rank descending for "most severe/urgent".
 - Group/aggregate = category question + aggregate step (group_by the .value column, metrics count/sum/avg/...). Always keep a count metric.
+- Matching rows of two tables that describe the same entity (same product, same company, same person) = ONE semantic_match step against the other dataset. Candidate retrieval (exact blocking plus lexical similarity) is automatic; Jev only verifies each candidate pair. Never emulate matching with join + semantic_annotate: join is exact-key only.
 - Text columns holding money like "$148.04" must be converted with {"op":"to_number","args":[{"column":"price"}]} in a compute step before arithmetic or sorting.
 - Column names containing dots must be written exactly (e.g. "severity.score").
 - If a request needs data that is not in the schema (e.g. a revenue table), still produce the best plan over available columns and explain the gap in "description".
@@ -53,6 +54,7 @@ Step shapes:
  {"id","op":"compute","input","columns":[{"name","expr":<expr>}]}
  {"id","op":"aggregate","input","group_by":[...],"metrics":[{"name","fn":"count|count_distinct|sum|avg|min|max","column":"<col or omit for count>"}]}
  {"id","op":"join","input","right":{"dataset_id":"<id of another workspace dataset>"},"on":[{"left","right"}],"how":"inner|left","right_columns":[...]}   (right columns appear in the output as "right.<name>", e.g. "right.country"; the join output has fresh row ids and a left_row_id column)
+ {"id","op":"semantic_match","input","name":"match","right":{"dataset_id":"<id of another workspace dataset>"},"left_columns":[left cols to compare],"right_columns":[right cols to compare],"instruction":"yes/no relation to verify for one candidate pair, e.g. do the two records describe the same exact product?","criteria":{"true":"...","false":"..."},"candidates_per_row":5,"accept_min":0.8,"reject_max":0.3,"right_output_columns":[right cols to carry into the output]}   (outputs per left row: match.right_row_id, match.score, match.status (matched|uncertain|unmatched|no_candidates), and match.<name> for each right_output_columns entry)
  {"id","op":"distinct","input","columns":[...]}
  {"id","op":"limit","input","n":100}
 Expression <expr>: {"column":"name"} | {"literal": value} | {"op":"eq|ne|gt|gte|lt|lte|and|or|not|contains|icontains|starts_with|ends_with|in|is_null|not_null|add|sub|mul|div|coalesce|lower|upper|length|trim|year|month|date|to_number|replace|case","args":[<expr>,...]}
