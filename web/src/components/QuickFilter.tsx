@@ -27,8 +27,12 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [min, setMin] = useState<number | null>(null);
-  const [max, setMax] = useState<number | null>(null);
+  // Kept as text so partial input like "0." survives re-renders; parsed when applied.
+  const [minText, setMinText] = useState("");
+  const [maxText, setMaxText] = useState("");
+  const parseBound = (t: string): number | null => (t.trim() === "" || Number.isNaN(Number(t)) ? null : Number(t));
+  const min = parseBound(minText);
+  const max = parseBound(maxText);
   const [labels, setLabels] = useState<Set<number>>(new Set());
   const [includeNull, setIncludeNull] = useState(false);
   const [sort, setSort] = useState<"none" | "asc" | "desc">("none");
@@ -82,8 +86,8 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
           const lo = nums.length ? Math.min(...nums) : 0;
           const hi = nums.length ? Math.max(...nums) : 1;
           setLoaded({ kind: "number", min: lo, max: hi, rows: r.row_ids.length });
-          setMin(lo);
-          setMax(hi);
+          setMinText(String(lo));
+          setMaxText(String(hi));
         } else {
           setLoaded({ kind: "label", labels: col.labels ?? [], rows: r.row_ids.length });
           setLabels(new Set((col.labels ?? []).map((_, i) => i)));
@@ -137,13 +141,13 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
         <>
           <label className="row">
             min
-            <input type="range" min={loaded.min} max={loaded.max} step={step_} value={min ?? loaded.min} onChange={(e) => setMin(Number(e.target.value))} />
-            <input type="text" style={{ width: 64 }} value={min ?? ""} onChange={(e) => setMin(e.target.value === "" ? null : Number(e.target.value))} />
+            <input type="range" min={loaded.min} max={loaded.max} step={step_} value={min ?? loaded.min} onChange={(e) => setMinText(e.target.value)} />
+            <input type="text" style={{ width: 64 }} value={minText} onChange={(e) => setMinText(e.target.value)} />
           </label>
           <label className="row">
             max
-            <input type="range" min={loaded.min} max={loaded.max} step={step_} value={max ?? loaded.max} onChange={(e) => setMax(Number(e.target.value))} />
-            <input type="text" style={{ width: 64 }} value={max ?? ""} onChange={(e) => setMax(e.target.value === "" ? null : Number(e.target.value))} />
+            <input type="range" min={loaded.min} max={loaded.max} step={step_} value={max ?? loaded.max} onChange={(e) => setMaxText(e.target.value)} />
+            <input type="text" style={{ width: 64 }} value={maxText} onChange={(e) => setMaxText(e.target.value)} />
           </label>
         </>
       )}
