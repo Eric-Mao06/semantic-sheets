@@ -59,6 +59,13 @@ cd server && uv run pytest -q          # importer, exact engine, workflow/API wi
 cd web && npx tsc -p tsconfig.app.json --noEmit && npm run build
 ```
 
+## Benchmark
+
+`benchmarks/` compares the operators (planner + Jev + DuckDB) with handing the same CSV and prompt to `gpt-6-astra`
+(reasoning `high`) in one request, on the six walkthrough scenarios: output quality against gold or agreement
+metrics, token usage, cost and latency. See [`benchmarks/README.md`](benchmarks/README.md) for the method and findings
+and [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for every plan, metric and disagreement.
+
 ## How it works
 
 1. **Import** (`importer.py`): CSV/TSV sniffing, strict parsing with explicit columns, typed columns, stable
