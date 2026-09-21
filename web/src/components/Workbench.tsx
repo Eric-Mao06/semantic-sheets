@@ -40,6 +40,10 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
   const [localFilter, setLocalFilter] = useState<LocalFilterResult | null>(null);
   const [wsInfo, setWsInfo] = useState<WorkspaceInfo>(workspace);
   const unsubscribe = useRef<(() => void) | null>(null);
+  const activeRvRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeRvRef.current = activeRv;
+  }, [activeRv]);
 
   const showToast = useCallback((m: string) => {
     setToast(m);
@@ -92,6 +96,11 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
         const inputStep = src ? result.steps.find((x) => x.id === src.input) : null;
         cols = inputStep?.columns ?? cols;
       }
+    }
+    const stepDef = result.steps.find((x) => x.id === step);
+    if (stepDef && (stepDef.op === "semantic_annotate" || stepDef.op === "semantic_match")) {
+      const isOut = (c: ColumnInfo) => c.name.includes(".") && !c.name.endsWith(".raw");
+      cols = [...cols.filter((c) => c.name === "_row_id"), ...cols.filter((c) => c.name !== "_row_id" && isOut(c)), ...cols.filter((c) => c.name !== "_row_id" && !isOut(c))];
     }
     setColumns(cols);
     const spec: ViewSpec = { rv: activeRv, step, columns: cols.map((c) => c.name), revision: result.revision, localRowIds: localFilter?.rowIds ?? null };
@@ -161,7 +170,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
               setJobs((list) => [jj, ...list.filter((x) => x.job_id !== jj.job_id)]);
               api.workspace().then(setWsInfo).catch(() => {});
               onWorkspaceRefresh();
-              if (activeRv === jj.result_version_id) {
+              if (activeRvRef.current === jj.result_version_id) {
                 api.describeResult(jj.result_version_id).then((r) => {
                   setResult(r);
                   if (!userPickedStep.current) setStep(r.output);
@@ -175,7 +184,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
         () => {},
       );
     },
-    [controller, activeRv, onWorkspaceRefresh, showToast],
+    [controller, onWorkspaceRefresh, showToast],
   );
 
   const run = async () => {

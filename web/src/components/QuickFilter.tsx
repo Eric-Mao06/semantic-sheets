@@ -22,7 +22,7 @@ const NUMERIC = new Set(["integer", "double", "boolean"]);
  * happen off the main thread and never hit the server; the resulting row-id list drives the grid view.
  */
 export default function QuickFilter({ rv, step, columns, revision, enabled, onResult }: Props) {
-  const worker = useMemo(() => new Worker(new URL("../worker/vectors.worker.ts", import.meta.url), { type: "module" }), []);
+  const workerRef = useRef<Worker | null>(null);
   const [column, setColumn] = useState<string>("");
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loading, setLoading] = useState(false);
@@ -36,14 +36,20 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
   const reqId = useRef(0);
   const pending = useRef(new Map<number, (m: { count: number; rowIds: ArrayBuffer; ms: number }) => void>());
 
+  // Created in an effect (not useMemo) so StrictMode's mount/unmount/mount cycle cannot leave a terminated worker behind.
   useEffect(() => {
+    const worker = new Worker(new URL("../worker/vectors.worker.ts", import.meta.url), { type: "module" });
     worker.onmessage = (e: MessageEvent) => {
       const m = e.data;
       if (m.type === "result") pending.current.get(m.id)?.(m);
       if (m.type === "over_budget") setError(`Vector for ${m.column} exceeds the local memory budget`);
     };
-    return () => worker.terminate();
-  }, [worker]);
+    workerRef.current = worker;
+    return () => {
+      worker.terminate();
+      workerRef.current = null;
+    };
+  }, []);
 
   const candidates = useMemo(
     () => columns.filter((c) => c.name.endsWith(".value") || c.name.endsWith(".confidence") || NUMERIC.has(c.type) || c.type === "text"),
@@ -56,7 +62,7 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
     setLoaded(null);
     setActive(false);
     setError(null);
-    worker.postMessage({ type: "clear" });
+    workerRef.current?.postMessage({ type: "clear" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rv, step]);
 
@@ -70,7 +76,7 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
       .then((r) => {
         if (cancelled) return;
         const col = r.columns[column];
-        worker.postMessage({ type: "load", rowIds: r.row_ids, columns: r.columns, replace: true });
+        workerRef.current?.postMessage({ type: "load", rowIds: r.row_ids, columns: r.columns, replace: true });
         if (col.kind === "number") {
           const nums = col.values.filter((v): v is number => v !== null);
           const lo = nums.length ? Math.min(...nums) : 0;
@@ -90,7 +96,7 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
     return () => {
       cancelled = true;
     };
-  }, [column, rv, step, revision, worker]);
+  }, [column, rv, step, revision]);
 
   const apply = () => {
     if (!loaded) return;
@@ -103,7 +109,7 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
       setActive(true);
       onResult({ rowIds: ids, count: m.count, ms: m.ms, column });
     });
-    worker.postMessage({ type: "filter", id, conditions, sort: sort === "none" ? null : { column, direction: sort } });
+    workerRef.current?.postMessage({ type: "filter", id, conditions, sort: sort === "none" ? null : { column, direction: sort } });
   };
 
   const clear = () => {

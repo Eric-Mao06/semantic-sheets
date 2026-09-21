@@ -28,13 +28,14 @@ const STATUS_THEME: Record<string, Partial<Theme>> = {
 };
 
 function widthFor(c: ColumnInfo): number {
+  const header = Math.min(260, 24 + c.name.length * 7.2); // wide enough to read the header
   if (c.name === "_row_id") return 70;
-  if (c.name.endsWith(".status")) return 96;
-  if (c.name.endsWith(".score") || c.name.endsWith(".confidence")) return 92;
-  if (c.type === "integer" || c.type === "double") return 110;
-  if (c.type === "boolean") return 90;
-  if (c.type === "date" || c.type === "timestamp") return 120;
-  if (c.role === "semantic" || c.name.endsWith(".value")) return 160;
+  if (c.name.endsWith(".status")) return Math.max(96, header);
+  if (c.name.endsWith(".score") || c.name.endsWith(".confidence")) return Math.max(92, header);
+  if (c.type === "integer" || c.type === "double") return Math.max(110, header);
+  if (c.type === "boolean") return Math.max(90, header);
+  if (c.type === "date" || c.type === "timestamp") return Math.max(120, header);
+  if (c.role === "semantic" || c.name.endsWith(".value")) return Math.max(170, header);
   return 300;
 }
 
