@@ -1,5 +1,5 @@
 {
-  "run": "planner-glm-5.3-flash",
+  "run": "planner-glm-5.3-flash-run1",
   "planner_config": {
     "provider": "openrouter",
     "model": "z-ai/glm-5.3-flash",
@@ -37,19 +37,20 @@
     }
   ],
   "notes": [
-    "Bounded to the 300 highest-revenue products and their 4758 product x country revenue rows. Both approaches define their own gift taxonomy, so labels are compared with clustering agreement (ARI / NMI) rather than exact match; the revenue table is recomputed exactly from each approach's own labels to check the arithmetic."
+    "Bounded to the 300 highest-revenue products and their 4758 product x country revenue rows. Both approaches define their own gift taxonomy, so labels are compared with clustering agreement (ARI / NMI) rather than exact match; the revenue table is recomputed exactly from each approach's own labels to check the arithmetic.",
+    "Earlier GLM 5.3 Flash planner run; Jev called through the TypeSafe API only (JEV_ROUTES=direct)."
   ],
   "pipeline": {
     "plan": {
       "plan_version": "1",
       "source": {
-        "dataset_id": "ds_3e2a51cb3bc1431a",
-        "version_id": "v_8f272ca7a1104133"
+        "dataset_id": "ds_84ec97fff6cd4657",
+        "version_id": "v_3584fb0e217a42d4"
       },
       "model": "jev-1.13.0",
       "steps": [
         {
-          "id": "classify",
+          "id": "classify_gifts",
           "input": "source",
           "op": "semantic_annotate",
           "columns": [
@@ -60,33 +61,34 @@
             {
               "name": "gift_category",
               "kind": "category",
-              "instruction": "Based on the product description (which may be in any language; judge its meaning), assign the product to exactly one gift category. Description text is in English and may be noisy/abbreviated.",
+              "instruction": "Based on the product description (product descriptions are typically in English and may be short or abbreviated; judge by meaning), which gift category does this product best belong to? Pick the single best-fitting category.",
               "criteria": null,
               "thresholds": {
                 "true_min": 0.85,
                 "false_max": 0.15
               },
               "options": {
-                "home_decor": "Decorative items for the home such as frames, wall art, ornaments, candles, photo holders",
-                "kitchen_dining": "Kitchen, dining, food and drink related items such as mugs, teapots, cutlery, cake stands, storage jars, biscuit tins",
-                "bags_accessories": "Bags, purses, umbrellas, aprons, wallets and wearable accessories",
-                "stationery_craft": "Cards, notebooks, pencils, stamps, craft kits, paint and craft supplies",
-                "toys_games": "Toys, games, playing cards, puzzles and novelty play items for children or adults",
-                "garden_outdoor": "Garden and outdoor items such as planters, doormats, garden tools, picnic items",
-                "other": "Product that does not fit any category above, or description is unclear/insufficient (e.g. damaged, test, sample, miscellaneous code)"
+                "home_decor": "Decorative items for the home such as frames, candle holders, ornaments, trinket boxes, doormats, clocks, vases.",
+                "kitchen_dining": "Items for kitchen, dining, food and drink such as mugs, teapots, cutlery, cake stands, tins, jam making sets, glassware.",
+                "bags_accessories": "Bags, purses, umbrellas, keyrings, wallets and similar personal accessories.",
+                "stationery_craft": "Stationery and craft items such as notebooks, pencils, paint sets, craft kits, stickers, card making supplies.",
+                "toys_games": "Toys, games and children's items such as puzzles, plush toys, kids play sets.",
+                "garden_outdoor": "Garden and outdoor items such as planters, watering cans, garden tools, picnic sets.",
+                "fashion_apparel": "Clothing and wearable items such as aprons, gloves, scarves, hats.",
+                "other": "Product does not fit any category above, description is missing, or evidence is insufficient."
               },
-              "min_confidence": 0.0,
+              "min_confidence": 0.5,
               "levels": null
             }
           ],
           "on_missing": "unknown"
         },
         {
-          "id": "join_country",
-          "input": "classify",
+          "id": "join_country_revenue",
+          "input": "classify_gifts",
           "op": "join",
           "right": {
-            "dataset_id": "ds_0a0c39de06b14653",
+            "dataset_id": "ds_827aa8f3d4b24e52",
             "version_id": null
           },
           "on": [
@@ -95,7 +97,7 @@
               "right": "stock_code"
             }
           ],
-          "how": "left",
+          "how": "inner",
           "right_columns": [
             "country",
             "revenue"
@@ -103,8 +105,8 @@
           "right_prefix": "right."
         },
         {
-          "id": "rev_by_cat_country",
-          "input": "join_country",
+          "id": "revenue_by_category_country",
+          "input": "join_country_revenue",
           "op": "aggregate",
           "group_by": [
             "gift_category.value",
@@ -112,9 +114,14 @@
           ],
           "metrics": [
             {
-              "name": "total_revenue",
+              "name": "revenue",
               "fn": "sum",
               "column": "right.revenue"
+            },
+            {
+              "name": "products",
+              "fn": "count_distinct",
+              "column": "stock_code"
             },
             {
               "name": "row_count",
@@ -124,30 +131,30 @@
           ]
         }
       ],
-      "output": "rev_by_cat_country",
+      "output": "revenue_by_category_country",
       "title": "Gift category revenue by country",
-      "description": "Classifies each product's description into one gift category, joins the classification to the retail_revenue_by_product_and_country table on stock_code, then sums revenue per category and country. You can edit the category taxonomy or raise min_confidence if you want stricter classification."
+      "description": "Classifies each product's description into a gift category, joins the classified products to the per-country revenue table by stock_code, then sums revenue per category and country. You can edit the category labels or thresholds; rows with uncertain categories are kept in a separate review view and excluded from the totals."
     },
     "planner": {
       "provider": "openrouter",
       "model": "z-ai/glm-5.3-flash",
       "reasoning_effort": "high",
-      "latency_ms": 10918,
+      "latency_ms": 11576,
       "usage": {
-        "input_tokens": 4188,
-        "output_tokens": 609,
-        "reasoning_tokens": 10,
+        "input_tokens": 3891,
+        "output_tokens": 849,
+        "reasoning_tokens": 177,
         "cost_usd": 0
       },
-      "attempts": 2,
+      "attempts": 1,
       "title": "Gift category revenue by country",
-      "description": "Classifies each product's description into one gift category, joins the classification to the retail_revenue_by_product_and_country table on stock_code, then sums revenue per category and country. You can edit the category taxonomy or raise min_confidence if you want stricter classification.",
+      "description": "Classifies each product's description into a gift category, joins the classified products to the per-country revenue table by stock_code, then sums revenue per category and country. You can edit the category labels or thresholds; rows with uncertain categories are kept in a separate review view and excluded from the totals.",
       "cost": {
-        "usd": 0.000933,
+        "usd": 0.001008,
         "source": "list_price",
-        "input_tokens": 4188,
-        "output_tokens": 609,
-        "reasoning_tokens": 10,
+        "input_tokens": 3891,
+        "output_tokens": 849,
+        "reasoning_tokens": 177,
         "prices_per_mtok": {
           "input": 0.15,
           "cached_input": 0.15,
@@ -160,13 +167,13 @@
       "semantic_rows": 300,
       "inference_attempts": 300,
       "provider_requests": 30,
-      "input_tokens": 103130,
-      "estimated_cost_usd": 0.004331,
+      "input_tokens": 116330,
+      "estimated_cost_usd": 0.004886,
       "candidate_pairs": 0,
       "cache_hits_estimated": 0,
       "stages": [
         {
-          "step": "classify",
+          "step": "classify_gifts",
           "kind": "annotate",
           "rows": 300,
           "rows_bound": "exact",
@@ -174,36 +181,32 @@
           "inference_attempts": 300,
           "cache_hits_estimated": 0,
           "requests": 30,
-          "input_tokens": 103130,
-          "mean_tokens_per_row": 339.8,
-          "estimated_cost_usd": 0.004331
+          "input_tokens": 116330,
+          "mean_tokens_per_row": 383.8,
+          "estimated_cost_usd": 0.004886
         }
       ],
       "quota_floor_seconds": 1.5
     },
     "job": {
-      "job_id": "job_aa8f1393c80f4aa5",
+      "job_id": "job_a7b540001a714cfe",
       "state": "succeeded",
       "terminal_reason": null,
       "usage": {
-        "input_tokens": 116593,
-        "output_tokens": 26996,
+        "input_tokens": 130993,
+        "output_tokens": 30264,
         "provider_requests": 30,
-        "spent_usd": 0.004897,
+        "spent_usd": 0.005502,
         "reserved_usd": 0.0,
         "cache_hits": 0,
-        "ambiguous_attempts": 0,
-        "route_requests": {
-          "direct": 15,
-          "openrouter": 15
-        }
+        "ambiguous_attempts": 0
       },
       "progress": {
         "stages": {
-          "classify": {
+          "classify_gifts": {
             "rows_total": 300,
-            "rows_succeeded": 300,
-            "rows_uncertain": 0,
+            "rows_succeeded": 267,
+            "rows_uncertain": 33,
             "rows_missing": 0,
             "rows_failed": 0,
             "rows_skipped": 0,
@@ -226,40 +229,36 @@
       "errors": []
     },
     "step_rows": {
-      "classify": 300,
-      "join_country": 4758,
-      "rev_by_cat_country": 267
+      "classify_gifts": 300,
+      "join_country_revenue": 4758,
+      "revenue_by_category_country": 315
     },
     "datasets": {
       "retail_products": {
-        "dataset_id": "ds_3e2a51cb3bc1431a",
-        "version_id": "v_8f272ca7a1104133",
+        "dataset_id": "ds_84ec97fff6cd4657",
+        "version_id": "v_3584fb0e217a42d4",
         "row_count": 300
       },
       "retail_revenue_by_product_and_country": {
-        "dataset_id": "ds_0a0c39de06b14653",
-        "version_id": "v_40b81b73b3af47a1",
+        "dataset_id": "ds_827aa8f3d4b24e52",
+        "version_id": "v_d1c7c73d3dd5475c",
         "row_count": 4758
       }
     },
     "timings_seconds": {
       "import": 0.1,
-      "planner": 28.2,
-      "job": 1.21,
-      "total": 29.57
+      "planner": 11.61,
+      "job": 1.24,
+      "total": 13.02
     },
     "cost": {
-      "planner_usd": 0.000933,
-      "jev_usd_from_measured_tokens": 0.004897,
-      "jev_usd_reported_by_job": 0.004897,
-      "jev_input_tokens": 116593,
+      "planner_usd": 0.001008,
+      "jev_usd_from_measured_tokens": 0.005502,
+      "jev_usd_reported_by_job": 0.005502,
+      "jev_input_tokens": 130993,
       "jev_requests": 30,
       "jev_cache_hits": 0,
-      "jev_route_requests": {
-        "direct": 15,
-        "openrouter": 15
-      },
-      "total_usd": 0.00583
+      "total_usd": 0.00651
     },
     "error": null
   },
@@ -302,30 +301,31 @@
       "Bounded to the 300 highest-revenue products and their 4758 product x country revenue rows. Both approaches define their own gift taxonomy, so labels are compared with clustering agreement (ARI / NMI) rather than exact match; the revenue table is recomputed exactly from each approach's own labels to check the arithmetic."
     ],
     "pipeline": {
-      "from_step": "classify",
+      "from_step": "classify_gifts",
       "question": "gift_category",
-      "products_labeled": 300,
+      "products_labeled": 267,
       "categories": {
-        "home_decor": 90,
-        "kitchen_dining": 74,
-        "bags_accessories": 42,
-        "garden_outdoor": 28,
-        "stationery_craft": 26,
-        "other": 23,
-        "toys_games": 17
+        "home_decor": 108,
+        "kitchen_dining": 65,
+        "bags_accessories": 36,
+        "stationery_craft": 22,
+        "toys_games": 17,
+        "garden_outdoor": 8,
+        "other": 8,
+        "fashion_apparel": 3
       },
-      "aggregate_step": "rev_by_cat_country",
+      "aggregate_step": "revenue_by_category_country",
       "revenue_check": {
-        "cells_claimed": 267,
-        "cells_expected": 267,
-        "cells_with_expected_counterpart": 267,
+        "cells_claimed": 315,
+        "cells_expected": 278,
+        "cells_with_expected_counterpart": 278,
         "cells_missing": 0,
-        "cells_extra": 0,
-        "exact_to_cent": 267,
-        "within_0_5_percent": 267,
+        "cells_extra": 37,
+        "exact_to_cent": 278,
+        "within_0_5_percent": 278,
         "max_abs_error": 0.0,
         "total_revenue_claimed": 10328259.82,
-        "total_revenue_expected": 10328259.82,
+        "total_revenue_expected": 9327839.94,
         "worst_cells": []
       }
     },
@@ -388,9 +388,9 @@
       }
     },
     "agreement": {
-      "products_labeled_by_both": 300,
-      "adjusted_rand_index": 0.0654,
-      "nmi": 0.2137
+      "products_labeled_by_both": 267,
+      "adjusted_rand_index": 0.1125,
+      "nmi": 0.2478
     },
     "examples": {
       "label_pairs": [
@@ -457,5 +457,5 @@
       ]
     }
   },
-  "generated_at": "2026-09-22T03:47:51Z"
+  "generated_at": "2026-09-21T23:44:25Z"
 }

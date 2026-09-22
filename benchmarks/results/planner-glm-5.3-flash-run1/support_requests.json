@@ -1,5 +1,5 @@
 {
-  "run": "planner-glm-5.3-flash",
+  "run": "planner-glm-5.3-flash-run1",
   "planner_config": {
     "provider": "openrouter",
     "model": "z-ai/glm-5.3-flash",
@@ -21,19 +21,20 @@
     }
   ],
   "notes": [
-    "9 rows satisfy the proxy gold definition among 3000 messages."
+    "9 rows satisfy the proxy gold definition among 3000 messages.",
+    "Earlier GLM 5.3 Flash planner run; Jev called through the TypeSafe API only (JEV_ROUTES=direct)."
   ],
   "pipeline": {
     "plan": {
       "plan_version": "1",
       "source": {
-        "dataset_id": "ds_e415d2857d5a4ab1",
-        "version_id": "v_caa3098c1f8f4f22"
+        "dataset_id": "ds_1f400f3b8a9e4cc0",
+        "version_id": "v_8b53ee9603974950"
       },
       "model": "jev-1.13.0",
       "steps": [
         {
-          "id": "annotate_cancel_unaffordable",
+          "id": "annotate",
           "input": "source",
           "op": "semantic_annotate",
           "columns": [
@@ -41,12 +42,12 @@
           ],
           "questions": [
             {
-              "name": "unaffordable_cancel",
+              "name": "cancel_unaffordable",
               "kind": "boolean",
-              "instruction": "The text may be in any language; judge its meaning. Does this customer message express a desire to cancel an order (or remove items from an order) AND indicate that the reason is that they cannot afford it (no money, financial difficulty, too expensive)? Implied statements count: e.g. 'I cannot afford order 123', 'I lost my job so I need to cancel my purchase', or 'want help to cancel order {{Order Number}} because I have no money' all count as true. A cancellation request with a different or unstated reason is false.",
+              "instruction": "Read the customer message (it may be in any language; judge its meaning, including typos). Does the customer want to cancel an order and say the reason is that they cannot afford it / have no money for it?",
               "criteria": {
-                "true": "The message asks or intends to cancel an order (or items in it) and the affordability/financial reason is stated or clearly implied.",
-                "false": "The message is not about cancelling an order, or the cancellation reason is unrelated to affordability (e.g. wrong item, address change, no reason given)."
+                "true": "The message asks for, requests help with, or clearly implies cancelling an order, AND expresses inability to pay or lack of money as the reason (e.g. 'cancel order 123, I cannot afford it', 'I have no money so I want to cancel my purchase'). Implied affordability problems count: 'cancel it, it's too expensive for me', 'lost my job so cancel my order'.",
+                "false": "The message is about cancelling for any other reason (wrong item, changed mind, delivery problems, duplicate order) or does not involve cancelling an order (e.g. cancelling an account), or does not mention affordability as the reason."
               },
               "thresholds": {
                 "true_min": 0.7,
@@ -60,52 +61,50 @@
           "on_missing": "unknown"
         },
         {
-          "id": "filter_unaffordable_cancel",
-          "input": "annotate_cancel_unaffordable",
+          "id": "filter_cancels",
+          "input": "annotate",
           "op": "filter",
           "where": {
-            "column": "unaffordable_cancel.value"
+            "column": "cancel_unaffordable.value"
           },
           "unknown_policy": "separate"
         },
         {
-          "id": "project_result",
-          "input": "filter_unaffordable_cancel",
+          "id": "final",
+          "input": "filter_cancels",
           "op": "project",
           "columns": [
             "row_id",
-            "instruction",
             "flags",
-            "unaffordable_cancel.value",
-            "unaffordable_cancel.score",
-            "unaffordable_cancel.status"
+            "instruction",
+            "cancel_unaffordable.score"
           ]
         }
       ],
-      "output": "project_result",
-      "title": "Customers cancelling an order because they cannot afford it",
-      "description": "Semantically flags instructions where the customer wants to cancel an order (or an item in it) and the stated or implied reason is that they cannot afford it, including indirect phrasings like lack of money, financial trouble, or asking to cancel because of the price. Uncertain rows are routed to a review view; adjust thresholds in the filter if needed."
+      "output": "final",
+      "title": "Customers cancelling orders because they cannot afford them",
+      "description": "Finds support messages where the customer wants to cancel an order and the reason is inability to afford it (implied affordability problems count). Uncertain rows are routed to a separate review view; you can tighten the threshold if too many appear."
     },
     "planner": {
       "provider": "openrouter",
       "model": "z-ai/glm-5.3-flash",
       "reasoning_effort": "high",
-      "latency_ms": 7457,
+      "latency_ms": 6979,
       "usage": {
-        "input_tokens": 2459,
-        "output_tokens": 565,
-        "reasoning_tokens": 26,
+        "input_tokens": 3097,
+        "output_tokens": 520,
+        "reasoning_tokens": 32,
         "cost_usd": 0
       },
       "attempts": 1,
-      "title": "Customers cancelling an order because they cannot afford it",
-      "description": "Semantically flags instructions where the customer wants to cancel an order (or an item in it) and the stated or implied reason is that they cannot afford it, including indirect phrasings like lack of money, financial trouble, or asking to cancel because of the price. Uncertain rows are routed to a review view; adjust thresholds in the filter if needed.",
+      "title": "Customers cancelling orders because they cannot afford them",
+      "description": "Finds support messages where the customer wants to cancel an order and the reason is inability to afford it (implied affordability problems count). Uncertain rows are routed to a separate review view; you can tighten the threshold if too many appear.",
       "cost": {
-        "usd": 0.000651,
+        "usd": 0.000725,
         "source": "list_price",
-        "input_tokens": 2459,
-        "output_tokens": 565,
-        "reasoning_tokens": 26,
+        "input_tokens": 3097,
+        "output_tokens": 520,
+        "reasoning_tokens": 32,
         "prices_per_mtok": {
           "input": 0.15,
           "cached_input": 0.15,
@@ -118,13 +117,13 @@
       "semantic_rows": 3000,
       "inference_attempts": 3000,
       "provider_requests": 300,
-      "input_tokens": 914975,
-      "estimated_cost_usd": 0.038429,
+      "input_tokens": 899975,
+      "estimated_cost_usd": 0.037799,
       "candidate_pairs": 0,
       "cache_hits_estimated": 0,
       "stages": [
         {
-          "step": "annotate_cancel_unaffordable",
+          "step": "annotate",
           "kind": "annotate",
           "rows": 3000,
           "rows_bound": "exact",
@@ -132,36 +131,32 @@
           "inference_attempts": 3000,
           "cache_hits_estimated": 0,
           "requests": 300,
-          "input_tokens": 914975,
-          "mean_tokens_per_row": 301.0,
-          "estimated_cost_usd": 0.038429
+          "input_tokens": 899975,
+          "mean_tokens_per_row": 296.0,
+          "estimated_cost_usd": 0.037799
         }
       ],
       "quota_floor_seconds": 15.0
     },
     "job": {
-      "job_id": "job_e3737d8586c84911",
+      "job_id": "job_1773f745a9f8409e",
       "state": "succeeded",
       "terminal_reason": null,
       "usage": {
-        "input_tokens": 809594,
+        "input_tokens": 800747,
         "output_tokens": 71976,
         "provider_requests": 300,
-        "spent_usd": 0.034003,
+        "spent_usd": 0.033631,
         "reserved_usd": 0.0,
         "cache_hits": 51,
-        "ambiguous_attempts": 0,
-        "route_requests": {
-          "direct": 170,
-          "openrouter": 130
-        }
+        "ambiguous_attempts": 0
       },
       "progress": {
         "stages": {
-          "annotate_cancel_unaffordable": {
+          "annotate": {
             "rows_total": 3000,
-            "rows_succeeded": 2996,
-            "rows_uncertain": 4,
+            "rows_succeeded": 2994,
+            "rows_uncertain": 6,
             "rows_missing": 0,
             "rows_failed": 0,
             "rows_skipped": 0,
@@ -184,35 +179,31 @@
       "errors": []
     },
     "step_rows": {
-      "annotate_cancel_unaffordable": 3000,
-      "filter_unaffordable_cancel": 3,
-      "project_result": 3
+      "annotate": 3000,
+      "filter_cancels": 2,
+      "final": 2
     },
     "datasets": {
       "support_requests": {
-        "dataset_id": "ds_e415d2857d5a4ab1",
-        "version_id": "v_caa3098c1f8f4f22",
+        "dataset_id": "ds_1f400f3b8a9e4cc0",
+        "version_id": "v_8b53ee9603974950",
         "row_count": 3000
       }
     },
     "timings_seconds": {
-      "import": 0.06,
-      "planner": 7.49,
-      "job": 7.53,
-      "total": 15.14
+      "import": 0.07,
+      "planner": 7.02,
+      "job": 13.3,
+      "total": 20.44
     },
     "cost": {
-      "planner_usd": 0.000651,
-      "jev_usd_from_measured_tokens": 0.034003,
-      "jev_usd_reported_by_job": 0.034003,
-      "jev_input_tokens": 809594,
+      "planner_usd": 0.000725,
+      "jev_usd_from_measured_tokens": 0.033631,
+      "jev_usd_reported_by_job": 0.033631,
+      "jev_input_tokens": 800747,
       "jev_requests": 300,
       "jev_cache_hits": 51,
-      "jev_route_requests": {
-        "direct": 170,
-        "openrouter": 130
-      },
-      "total_usd": 0.034654
+      "total_usd": 0.034356
     },
     "error": null
   },
@@ -253,21 +244,21 @@
     "gold_definition": "intent == cancel_order AND text mentions affordability (regex); the Bitext intent labels were removed from both inputs",
     "gold_size": 9,
     "pipeline": {
-      "selected": 3,
-      "from_step": "project_result",
-      "tp": 3,
+      "selected": 2,
+      "from_step": "final",
+      "tp": 2,
       "fp": 0,
-      "fn": 6,
+      "fn": 7,
       "precision": 1.0,
-      "recall": 0.3333,
-      "f1": 0.5,
+      "recall": 0.2222,
+      "f1": 0.3636,
       "review_view": {
-        "unaffordable_cancel": {
-          "uncertain": 4
+        "cancel_unaffordable": {
+          "uncertain": 6
         }
       },
-      "gold_rows_in_review_view": 4,
-      "missed_gold_in_review_view": 4
+      "gold_rows_in_review_view": 6,
+      "missed_gold_in_review_view": 6
     },
     "oneshot": {
       "selected": 9,
@@ -279,10 +270,10 @@
       "f1": 1.0
     },
     "agreement": {
-      "both": 3,
+      "both": 2,
       "only_a": 0,
-      "only_b": 6,
-      "jaccard": 0.3333
+      "only_b": 7,
+      "jaccard": 0.2222
     },
     "examples": {
       "only_pipeline": [],
@@ -308,6 +299,10 @@
           "text": "I can't afford order {{Order Number}}"
         },
         {
+          "row_id": 2951,
+          "text": "I can no longer afford purchase {{Order Number}}"
+        },
+        {
           "row_id": 2973,
           "text": "I can no longer pay for order {{Order Number}}"
         }
@@ -315,5 +310,5 @@
       "missed_by_both": []
     }
   },
-  "generated_at": "2026-09-22T03:47:51Z"
+  "generated_at": "2026-09-21T23:44:25Z"
 }

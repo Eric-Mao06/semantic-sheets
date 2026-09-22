@@ -1,5 +1,5 @@
 {
-  "run": "planner-glm-5.3-flash",
+  "run": "planner-glm-5.3-flash-run1",
   "planner_config": {
     "provider": "openrouter",
     "model": "z-ai/glm-5.3-flash",
@@ -20,19 +20,20 @@
     }
   ],
   "notes": [
-    "Gold classes come from the BANKING77 intents (removed from both inputs). Strict: pending_transfer -> pending; failed_transfer and declined_transfer -> failed; everything else -> other. Lenient additionally counts transfer_timing, balance_not_updated_after_bank_transfer and transfer_not_received_by_recipient as pending (a transfer that has not arrived). BANKING77 has no intent meaning 'sent to the wrong account', so that class is compared between the two approaches only. Queries about pending top-ups, card payments or cash withdrawals are 'other' under both mappings; whether they are 'pending transfers' is a judgement call that the prompt leaves open, and it drives most of the false positives on both sides."
+    "Gold classes come from the BANKING77 intents (removed from both inputs). Strict: pending_transfer -> pending; failed_transfer and declined_transfer -> failed; everything else -> other. Lenient additionally counts transfer_timing, balance_not_updated_after_bank_transfer and transfer_not_received_by_recipient as pending (a transfer that has not arrived). BANKING77 has no intent meaning 'sent to the wrong account', so that class is compared between the two approaches only. Queries about pending top-ups, card payments or cash withdrawals are 'other' under both mappings; whether they are 'pending transfers' is a judgement call that the prompt leaves open, and it drives most of the false positives on both sides.",
+    "Earlier GLM 5.3 Flash planner run; Jev called through the TypeSafe API only (JEV_ROUTES=direct)."
   ],
   "pipeline": {
     "plan": {
       "plan_version": "1",
       "source": {
-        "dataset_id": "ds_aa8577ac643d49db",
-        "version_id": "v_4aad3baf75954eae"
+        "dataset_id": "ds_65ea2dddfafb49ff",
+        "version_id": "v_99a3055edc7343fa"
       },
       "model": "jev-1.13.0",
       "steps": [
         {
-          "id": "classify_transfers",
+          "id": "classify",
           "input": "source",
           "op": "semantic_annotate",
           "columns": [
@@ -40,51 +41,117 @@
           ],
           "questions": [
             {
-              "name": "transfer_status",
+              "name": "transfer_situation",
               "kind": "category",
-              "instruction": "The text may be in any language; judge its meaning. Classify this customer support message about a money transfer into exactly one category: (1) pending_transfer if the transfer has been sent or is in progress and has not yet arrived or been completed and the customer is asking about its status or delay; (2) failed_transfer if the transfer did not go through, was declined, bounced, was returned, or the customer reports the transfer did not happen at all (e.g. it never showed up and is not merely delayed); (3) wrong_account if the money was sent to the wrong recipient, wrong account, wrong person, or the wrong amount went through because of a mistaken recipient or account details; (4) other for anything else, including transfers the customer has not yet sent, general questions about how transfers work, and messages not about transfers. If a message fits more than one category, pick the single most specific one; if there is insufficient evidence, pick other.",
+              "instruction": "Read the customer message (it may be in any language; judge its meaning). Does it describe a money transfer (a payment sent between accounts, e.g. 'transfer', 'sent money to my account', 'moved funds'), and if so, which situation does it describe: the transfer is still pending / in progress, the transfer failed or did not go through, or the transfer was sent to the wrong account or recipient?",
               "criteria": null,
               "thresholds": {
                 "true_min": 0.85,
                 "false_max": 0.15
               },
               "options": {
-                "pending_transfer": "Transfer has been initiated but has not yet arrived or completed; customer asks where it is or why it is delayed.",
-                "failed_transfer": "Transfer did not go through: declined, bounced, reversed, returned to sender, or never executed.",
-                "wrong_account": "Money was sent to the wrong account, wrong person, or wrong recipient because of mistaken details.",
-                "other": "Not about an in-flight transfer, or not about transfers at all (general questions, other card/account topics, not yet sent)."
+                "pending_transfer": "The message is about a transfer that is still pending, processing, in progress, delayed, or has not shown up yet (but is expected).",
+                "failed_transfer": "The message is about a transfer that failed, was rejected, did not go through, returned an error, or was cancelled before completing.",
+                "wrong_account_transfer": "The message is about a transfer that went to the wrong account, wrong recipient, or was sent by mistake to the wrong person/details.",
+                "other": "The message is not about a money transfer, or is about a transfer but does not clearly indicate pending, failed, or wrong account."
               },
               "min_confidence": 0.5,
               "levels": null
             }
           ],
           "on_missing": "unknown"
+        },
+        {
+          "id": "pending_view",
+          "input": "classify",
+          "op": "filter",
+          "where": {
+            "op": "eq",
+            "args": [
+              {
+                "column": "transfer_situation.value"
+              },
+              {
+                "literal": "pending_transfer"
+              }
+            ]
+          },
+          "unknown_policy": "separate"
+        },
+        {
+          "id": "failed_view",
+          "input": "classify",
+          "op": "filter",
+          "where": {
+            "op": "eq",
+            "args": [
+              {
+                "column": "transfer_situation.value"
+              },
+              {
+                "literal": "failed_transfer"
+              }
+            ]
+          },
+          "unknown_policy": "separate"
+        },
+        {
+          "id": "wrong_account_view",
+          "input": "classify",
+          "op": "filter",
+          "where": {
+            "op": "eq",
+            "args": [
+              {
+                "column": "transfer_situation.value"
+              },
+              {
+                "literal": "wrong_account_transfer"
+              }
+            ]
+          },
+          "unknown_policy": "separate"
+        },
+        {
+          "id": "summary",
+          "input": "classify",
+          "op": "aggregate",
+          "group_by": [
+            "transfer_situation.value"
+          ],
+          "metrics": [
+            {
+              "name": "message_count",
+              "fn": "count",
+              "column": null
+            }
+          ]
         }
       ],
-      "output": "classify_transfers",
-      "title": "Classify transfer messages into pending, failed, or wrong-account",
-      "description": "Classifies each support message into one of four categories: transfer still pending, transfer failed, transfer sent to the wrong account, or other/not transfer-related. Rows can then be separated by transfer_status.value. Edit the option set or min_confidence (0.5) if you want different groupings."
+      "output": "summary",
+      "title": "Classify transfer messages as pending, failed, or wrong account",
+      "description": "Classifies each message into one of the three requested transfer situations plus an 'other' bucket (non-transfer messages), then splits the rows into three separate filtered views and produces a count summary. You can lower min_confidence (0.5) to route fewer rows to 'other', or rename the labels."
     },
     "planner": {
       "provider": "openrouter",
       "model": "z-ai/glm-5.3-flash",
       "reasoning_effort": "high",
-      "latency_ms": 13888,
+      "latency_ms": 10596,
       "usage": {
-        "input_tokens": 2398,
-        "output_tokens": 689,
-        "reasoning_tokens": 154,
+        "input_tokens": 3027,
+        "output_tokens": 920,
+        "reasoning_tokens": 267,
         "cost_usd": 0
       },
       "attempts": 1,
-      "title": "Classify transfer messages into pending, failed, or wrong-account",
-      "description": "Classifies each support message into one of four categories: transfer still pending, transfer failed, transfer sent to the wrong account, or other/not transfer-related. Rows can then be separated by transfer_status.value. Edit the option set or min_confidence (0.5) if you want different groupings.",
+      "title": "Classify transfer messages as pending, failed, or wrong account",
+      "description": "Classifies each message into one of the three requested transfer situations plus an 'other' bucket (non-transfer messages), then splits the rows into three separate filtered views and produces a count summary. You can lower min_confidence (0.5) to route fewer rows to 'other', or rename the labels.",
       "cost": {
-        "usd": 0.000704,
+        "usd": 0.000914,
         "source": "list_price",
-        "input_tokens": 2398,
-        "output_tokens": 689,
-        "reasoning_tokens": 154,
+        "input_tokens": 3027,
+        "output_tokens": 920,
+        "reasoning_tokens": 267,
         "prices_per_mtok": {
           "input": 0.15,
           "cached_input": 0.15,
@@ -97,13 +164,13 @@
       "semantic_rows": 3080,
       "inference_attempts": 3080,
       "provider_requests": 308,
-      "input_tokens": 1496726,
-      "estimated_cost_usd": 0.062862,
+      "input_tokens": 1093246,
+      "estimated_cost_usd": 0.045916,
       "candidate_pairs": 0,
       "cache_hits_estimated": 0,
       "stages": [
         {
-          "step": "classify_transfers",
+          "step": "classify",
           "kind": "annotate",
           "rows": 3080,
           "rows_bound": "exact",
@@ -111,36 +178,32 @@
           "inference_attempts": 3080,
           "cache_hits_estimated": 0,
           "requests": 308,
-          "input_tokens": 1496726,
-          "mean_tokens_per_row": 481.9,
-          "estimated_cost_usd": 0.062862
+          "input_tokens": 1093246,
+          "mean_tokens_per_row": 350.9,
+          "estimated_cost_usd": 0.045916
         }
       ],
       "quota_floor_seconds": 15.4
     },
     "job": {
-      "job_id": "job_3ad30f83067746bf",
+      "job_id": "job_eb5ec90d9aa24bc5",
       "state": "succeeded",
       "terminal_reason": null,
       "usage": {
-        "input_tokens": 1312996,
-        "output_tokens": 155451,
+        "input_tokens": 1038965,
+        "output_tokens": 164505,
         "provider_requests": 308,
-        "spent_usd": 0.055146,
+        "spent_usd": 0.043637,
         "reserved_usd": 0.0,
         "cache_hits": 1,
-        "ambiguous_attempts": 0,
-        "route_requests": {
-          "direct": 166,
-          "openrouter": 142
-        }
+        "ambiguous_attempts": 0
       },
       "progress": {
         "stages": {
-          "classify_transfers": {
+          "classify": {
             "rows_total": 3080,
-            "rows_succeeded": 2940,
-            "rows_uncertain": 140,
+            "rows_succeeded": 2981,
+            "rows_uncertain": 99,
             "rows_missing": 0,
             "rows_failed": 0,
             "rows_skipped": 0,
@@ -163,33 +226,33 @@
       "errors": []
     },
     "step_rows": {
-      "classify_transfers": 3080
+      "classify": 3080,
+      "pending_view": 186,
+      "failed_view": 150,
+      "wrong_account_view": 5,
+      "summary": 5
     },
     "datasets": {
       "banking_queries": {
-        "dataset_id": "ds_aa8577ac643d49db",
-        "version_id": "v_4aad3baf75954eae",
+        "dataset_id": "ds_65ea2dddfafb49ff",
+        "version_id": "v_99a3055edc7343fa",
         "row_count": 3080
       }
     },
     "timings_seconds": {
-      "import": 0.05,
-      "planner": 13.93,
-      "job": 9.25,
-      "total": 23.25
+      "import": 0.04,
+      "planner": 10.63,
+      "job": 13.74,
+      "total": 24.51
     },
     "cost": {
-      "planner_usd": 0.000704,
-      "jev_usd_from_measured_tokens": 0.055146,
-      "jev_usd_reported_by_job": 0.055146,
-      "jev_input_tokens": 1312996,
+      "planner_usd": 0.000914,
+      "jev_usd_from_measured_tokens": 0.043637,
+      "jev_usd_reported_by_job": 0.043637,
+      "jev_input_tokens": 1038965,
       "jev_requests": 308,
       "jev_cache_hits": 1,
-      "jev_route_requests": {
-        "direct": 166,
-        "openrouter": 142
-      },
-      "total_usd": 0.05585
+      "total_usd": 0.044551
     },
     "error": null
   },
@@ -245,94 +308,94 @@
       }
     },
     "pipeline": {
-      "from_step": "classify_transfers",
-      "question": "transfer_status",
+      "from_step": "classify",
+      "question": "transfer_situation",
       "raw_labels": {
-        "other": 2447,
-        "pending_transfer": 230,
-        "failed_transfer": 257,
-        "wrong_account": 6
+        "other": 2640,
+        "pending_transfer": 186,
+        "failed_transfer": 150,
+        "wrong_account_transfer": 5
       },
       "label_mapping": {
         "other": "other",
         "pending_transfer": "pending",
         "failed_transfer": "failed",
-        "wrong_account": "wrong_account"
+        "wrong_account_transfer": "wrong_account"
       },
-      "rows_labeled": 2940,
+      "rows_labeled": 2981,
       "strict": {
-        "macro_f1": 0.3329,
-        "accuracy_on_rows_in_scope": 0.2044,
+        "macro_f1": 0.4639,
+        "accuracy_on_rows_in_scope": 0.3037,
         "per_class": {
           "pending": {
-            "predicted": 230,
+            "predicted": 186,
             "gold": 40,
-            "tp": 37,
-            "fp": 193,
-            "fn": 3,
-            "precision": 0.1609,
-            "recall": 0.925,
-            "f1": 0.2741
+            "tp": 40,
+            "fp": 146,
+            "fn": 0,
+            "precision": 0.2151,
+            "recall": 1.0,
+            "f1": 0.354
           },
           "failed": {
-            "predicted": 257,
+            "predicted": 150,
             "gold": 80,
             "tp": 66,
-            "fp": 191,
+            "fp": 84,
             "fn": 14,
-            "precision": 0.2568,
+            "precision": 0.44,
             "recall": 0.825,
-            "f1": 0.3917
+            "f1": 0.5739
           }
         }
       },
       "lenient": {
-        "macro_f1": 0.4856,
-        "accuracy_on_rows_in_scope": 0.3272,
+        "macro_f1": 0.7233,
+        "accuracy_on_rows_in_scope": 0.6078,
         "per_class": {
           "pending": {
-            "predicted": 230,
+            "predicted": 186,
             "gold": 160,
-            "tp": 113,
-            "fp": 117,
-            "fn": 47,
-            "precision": 0.4913,
-            "recall": 0.7063,
-            "f1": 0.5795
+            "tp": 151,
+            "fp": 35,
+            "fn": 9,
+            "precision": 0.8118,
+            "recall": 0.9437,
+            "f1": 0.8728
           },
           "failed": {
-            "predicted": 257,
+            "predicted": 150,
             "gold": 80,
             "tp": 66,
-            "fp": 191,
+            "fp": 84,
             "fn": 14,
-            "precision": 0.2568,
+            "precision": 0.44,
             "recall": 0.825,
-            "f1": 0.3917
+            "f1": 0.5739
           }
         }
       },
       "false_positive_intents": {
         "pending": {
-          "pending_top_up": 33,
-          "pending_card_payment": 24,
-          "pending_cash_withdrawal": 23,
-          "balance_not_updated_after_cheque_or_cash_deposit": 20,
-          "Refund_not_showing_up": 12,
-          "topping_up_by_card": 5
+          "pending_top_up": 25,
+          "cancel_transfer": 5,
+          "topping_up_by_card": 2,
+          "pending_card_payment": 1,
+          "Refund_not_showing_up": 1,
+          "failed_transfer": 1
         },
         "failed": {
-          "top_up_reverted": 38,
-          "reverted_card_payment?": 36,
-          "top_up_failed": 33,
-          "declined_card_payment": 28,
-          "beneficiary_not_allowed": 26,
-          "pending_cash_withdrawal": 6
+          "beneficiary_not_allowed": 30,
+          "top_up_reverted": 24,
+          "reverted_card_payment?": 16,
+          "top_up_failed": 9,
+          "pending_top_up": 2,
+          "apple_pay_or_google_pay": 2
         }
       },
-      "wrong_account_rows": 6,
+      "wrong_account_rows": 5,
       "wrong_account_intents": {
-        "cancel_transfer": 6
+        "cancel_transfer": 5
       }
     },
     "oneshot": {
@@ -406,98 +469,98 @@
     },
     "agreement": {
       "n": 3080,
-      "agreement": 0.8974,
-      "kappa": 0.5145,
+      "agreement": 0.9542,
+      "kappa": 0.7257,
       "wrong_account": {
         "both": 5,
-        "only_a": 1,
+        "only_a": 0,
         "only_b": 0,
-        "jaccard": 0.8333
+        "jaccard": 1.0
       }
     },
     "examples": {
       "disagreements": [
         {
-          "row_id": 201,
-          "text": "My withdrawl is still pending.  Why?",
-          "intent": "pending_cash_withdrawal",
+          "row_id": 642,
+          "text": "My card was topped this morning but I can't see the funds. Why didn't it complete?",
+          "intent": "pending_top_up",
           "pipeline": "pending",
           "oneshot": "other"
         },
         {
-          "row_id": 202,
-          "text": "My card was denied at an ATM earlier today but the transaction is pending. Please cancel it as I did not receive my money.",
-          "intent": "pending_cash_withdrawal",
+          "row_id": 643,
+          "text": "What would lead to my top up still pending?",
+          "intent": "pending_top_up",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 644,
+          "text": "there's a delay in my top-up",
+          "intent": "pending_top_up",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 646,
+          "text": "The top-up is pending.",
+          "intent": "pending_top_up",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 648,
+          "text": "I've already topped up, but I cannot see the funds being available. What happened?",
+          "intent": "pending_top_up",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 649,
+          "text": "What is going on? My top-up is still pending. I use your system all the time but now it is just showing as pending.",
+          "intent": "pending_top_up",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 651,
+          "text": "I topped up but it didn't complete",
+          "intent": "pending_top_up",
           "pipeline": "failed",
           "oneshot": "other"
         },
         {
-          "row_id": 203,
-          "text": "My transaction is still showing that is pending from my cash withdrawal.",
-          "intent": "pending_cash_withdrawal",
+          "row_id": 652,
+          "text": "So, I am a new customer and attempted to top up for the very first time today. It's already been pending for half an hour and doesn't seem t",
+          "intent": "pending_top_up",
           "pipeline": "pending",
           "oneshot": "other"
         },
         {
-          "row_id": 206,
-          "text": "Why is it taking so long for my cash withdrawal to no longer show as pending?",
-          "intent": "pending_cash_withdrawal",
+          "row_id": 653,
+          "text": "My top up is pending.",
+          "intent": "pending_top_up",
           "pipeline": "pending",
           "oneshot": "other"
         },
         {
-          "row_id": 209,
-          "text": "Why is my withdrawal still pending?",
-          "intent": "pending_cash_withdrawal",
+          "row_id": 654,
+          "text": "Can you look into my top up please.  I made it over three hours ago and yet it's still pending.",
+          "intent": "pending_top_up",
           "pipeline": "pending",
           "oneshot": "other"
         },
         {
-          "row_id": 210,
-          "text": "Are you sure when the withdrawal will show?",
-          "intent": "pending_cash_withdrawal",
+          "row_id": 655,
+          "text": "Can you please make my top up go through as soon as possible. I really need the money and it has been pending for an hour already.",
+          "intent": "pending_top_up",
           "pipeline": "pending",
           "oneshot": "other"
         },
         {
-          "row_id": 211,
-          "text": "Hi! I was wondering if you can help me. I used the city centre ATM to get some cash, but the machine declined my card. My account shows that",
-          "intent": "pending_cash_withdrawal",
-          "pipeline": "failed",
-          "oneshot": "other"
-        },
-        {
-          "row_id": 213,
-          "text": "My cash in the ATM is still pending",
-          "intent": "pending_cash_withdrawal",
-          "pipeline": "pending",
-          "oneshot": "other"
-        },
-        {
-          "row_id": 214,
-          "text": "my atm cash out is still pending",
-          "intent": "pending_cash_withdrawal",
-          "pipeline": "pending",
-          "oneshot": "other"
-        },
-        {
-          "row_id": 215,
-          "text": "I am still waiting for a cash withdrawal to show",
-          "intent": "pending_cash_withdrawal",
-          "pipeline": "pending",
-          "oneshot": "other"
-        },
-        {
-          "row_id": 216,
-          "text": "Is my pending cash withdrawal processed?",
-          "intent": "pending_cash_withdrawal",
-          "pipeline": "pending",
-          "oneshot": "other"
-        },
-        {
-          "row_id": 217,
-          "text": "how long til my cash out goes through?",
-          "intent": "pending_cash_withdrawal",
+          "row_id": 656,
+          "text": "What's going on with the top-up? All it says is pending, pending, pending! I use your service several times a week and have never had a prob",
+          "intent": "pending_top_up",
           "pipeline": "pending",
           "oneshot": "other"
         }
@@ -521,11 +584,6 @@
         {
           "row_id": 695,
           "text": "This is URGENT, I typed the wrong payment information for a payment I needed to make and have clicked send, I need to reverse the transactio",
-          "intent": "cancel_transfer"
-        },
-        {
-          "row_id": 701,
-          "text": "I transferred the wrong amount and would like to cancel the transaction.",
           "intent": "cancel_transfer"
         },
         {
@@ -563,5 +621,5 @@
       ]
     }
   },
-  "generated_at": "2026-09-22T03:47:51Z"
+  "generated_at": "2026-09-21T23:44:25Z"
 }

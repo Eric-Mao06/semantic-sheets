@@ -1,5 +1,5 @@
 {
-  "run": "planner-glm-5.3-flash",
+  "run": "planner-glm-5.3-flash-run1",
   "planner_config": {
     "provider": "openrouter",
     "model": "z-ai/glm-5.3-flash",
@@ -38,24 +38,25 @@
     }
   ],
   "notes": [
-    "400 offers, each with exactly one true match among 598 catalog entries (WDC gold standard); every other catalog entry is a different product. 396 catalog entries that were the offers' own identical records were removed first. The cluster_id and true_catalog_id columns were removed from both inputs."
+    "400 offers, each with exactly one true match among 598 catalog entries (WDC gold standard); every other catalog entry is a different product. 396 catalog entries that were the offers' own identical records were removed first. The cluster_id and true_catalog_id columns were removed from both inputs.",
+    "Earlier GLM 5.3 Flash planner run; Jev called through the TypeSafe API only (JEV_ROUTES=direct)."
   ],
   "pipeline": {
     "plan": {
       "plan_version": "1",
       "source": {
-        "dataset_id": "ds_d194483867b24e36",
-        "version_id": "v_35fe4aed387b43aa"
+        "dataset_id": "ds_6d9a52f7d8794d9b",
+        "version_id": "v_7b73e084ac554134"
       },
       "model": "jev-1.13.0",
       "steps": [
         {
-          "id": "match_offers",
+          "id": "match_catalog",
           "input": "source",
           "op": "semantic_match",
           "name": "match",
           "right": {
-            "dataset_id": "ds_cf8a6378e1434ad7",
+            "dataset_id": "ds_4c754f589ff54b32",
             "version_id": null
           },
           "left_columns": [
@@ -68,10 +69,10 @@
             "title",
             "description"
           ],
-          "instruction": "Do these two records describe the exact same physical product (same manufacturer product, same model/SKU, same variant)? Text may be in any language and may phrase the product differently; judge by meaning. Counterfeit/replica wording or generic category similarity alone does not count as the same exact product unless the specific model clearly corresponds.",
+          "instruction": "Do these two records describe the exact same product (same brand and same specific model/item), even if the titles are worded differently, translated, abbreviated, or include extra or missing details like capacity, color, or part numbers? Text may be in any language; judge by meaning.",
           "criteria": {
-            "true": "The two records refer to one identical product: the same manufacturer, the same base model line, and a compatible specific model/variant (sizes, capacities, colors or part numbers that differ mean false unless one record simply omits them and the other specifies them). Example: '250GB Crucial MX500 2.5\\\" SATA SSD' and 'Crucial MX500 500GB' are NOT the same (different capacity); 'Cartus cerneala Epson 79XL magenta' and 'Epson 79XL ink cartridge magenta singlepack' ARE the same despite different languages/wording.",
-            "false": "Different products, different variants (capacity, size, color, model number), only the same brand or generic category (e.g. both are SSDs but different models), unknown/ambiguous, or one side lacks enough information to confirm identity."
+            "true": "Both records refer to one identical product: the same brand (or one brand is missing/implied) and the same specific model or item, where any differing wording is just phrasing, translation, abbreviation, or extra/missing detail. An offer for e.g. 'Samsung 970 EVO Plus 500GB SSD' matches a catalog entry for the same SSD model in the same capacity.",
+            "false": "The records describe different products (different model, different capacity/variant, different brand, an accessory vs the product, or a compatible/generic/replica alternative rather than the same exact item), or there is not enough information to tell whether it is the exact same product."
           },
           "candidates_per_row": 5,
           "blocking": null,
@@ -85,47 +86,32 @@
             "currency"
           ],
           "right_prefix": "match."
-        },
-        {
-          "id": "sort_matches",
-          "input": "match_offers",
-          "op": "sort",
-          "by": [
-            {
-              "column": "match.score",
-              "direction": "desc"
-            },
-            {
-              "column": "row_id",
-              "direction": "asc"
-            }
-          ]
         }
       ],
-      "output": "sort_matches",
+      "output": "match_catalog",
       "title": "Match offers to catalog products",
-      "description": "Finds, for each offer row, the catalog record in product_catalog that describes the exact same product, using a semantic match over brand, title and description so differing wordings still match. Rows with low match scores remain unmatched; you can tighten or loosen this by editing accept_min/reject_max."
+      "description": "For every offer row, candidate catalog rows are retrieved automatically (exact blocking plus lexical similarity) and Jev verifies whether the pair describes the exact same physical product, tolerating different titles, translations, abbreviations and extra/missing wording. Edit candidates_per_row, accept_min or reject_max to trade recall vs precision; uncertain pairs remain in a review view."
     },
     "planner": {
       "provider": "openrouter",
       "model": "z-ai/glm-5.3-flash",
       "reasoning_effort": "high",
-      "latency_ms": 10289,
+      "latency_ms": 5048,
       "usage": {
-        "input_tokens": 4318,
-        "output_tokens": 587,
-        "reasoning_tokens": 10,
+        "input_tokens": 4629,
+        "output_tokens": 552,
+        "reasoning_tokens": 61,
         "cost_usd": 0
       },
       "attempts": 1,
       "title": "Match offers to catalog products",
-      "description": "Finds, for each offer row, the catalog record in product_catalog that describes the exact same product, using a semantic match over brand, title and description so differing wordings still match. Rows with low match scores remain unmatched; you can tighten or loosen this by editing accept_min/reject_max.",
+      "description": "For every offer row, candidate catalog rows are retrieved automatically (exact blocking plus lexical similarity) and Jev verifies whether the pair describes the exact same physical product, tolerating different titles, translations, abbreviations and extra/missing wording. Edit candidates_per_row, accept_min or reject_max to trade recall vs precision; uncertain pairs remain in a review view.",
       "cost": {
-        "usd": 0.000941,
+        "usd": 0.00097,
         "source": "list_price",
-        "input_tokens": 4318,
-        "output_tokens": 587,
-        "reasoning_tokens": 10,
+        "input_tokens": 4629,
+        "output_tokens": 552,
+        "reasoning_tokens": 61,
         "prices_per_mtok": {
           "input": 0.15,
           "cached_input": 0.15,
@@ -144,7 +130,7 @@
       "cache_hits_estimated": 0,
       "stages": [
         {
-          "step": "match_offers",
+          "step": "match_catalog",
           "kind": "match",
           "rows": 400,
           "rows_bound": "exact",
@@ -160,28 +146,24 @@
       "quota_floor_seconds": 10.0
     },
     "job": {
-      "job_id": "job_8b56a1bbf7a64af1",
+      "job_id": "job_dd37d796d3aa4162",
       "state": "succeeded",
       "terminal_reason": null,
       "usage": {
-        "input_tokens": 1026920,
+        "input_tokens": 910920,
         "output_tokens": 40800,
         "provider_requests": 200,
-        "spent_usd": 0.043131,
+        "spent_usd": 0.038259,
         "reserved_usd": 0.0,
         "cache_hits": 0,
-        "ambiguous_attempts": 0,
-        "route_requests": {
-          "direct": 107,
-          "openrouter": 93
-        }
+        "ambiguous_attempts": 0
       },
       "progress": {
         "stages": {
-          "match_offers": {
+          "match_catalog": {
             "rows_total": 400,
-            "rows_succeeded": 291,
-            "rows_uncertain": 109,
+            "rows_succeeded": 314,
+            "rows_uncertain": 86,
             "rows_missing": 0,
             "rows_failed": 0,
             "rows_skipped": 0,
@@ -204,39 +186,34 @@
       "errors": []
     },
     "step_rows": {
-      "match_offers": 400,
-      "sort_matches": 400
+      "match_catalog": 400
     },
     "datasets": {
       "product_offers": {
-        "dataset_id": "ds_d194483867b24e36",
-        "version_id": "v_35fe4aed387b43aa",
+        "dataset_id": "ds_6d9a52f7d8794d9b",
+        "version_id": "v_7b73e084ac554134",
         "row_count": 400
       },
       "product_catalog": {
-        "dataset_id": "ds_cf8a6378e1434ad7",
-        "version_id": "v_ffcc048548f74e02",
+        "dataset_id": "ds_4c754f589ff54b32",
+        "version_id": "v_015f343d36c749e9",
         "row_count": 598
       }
     },
     "timings_seconds": {
-      "import": 0.09,
-      "planner": 10.32,
-      "job": 4.68,
-      "total": 15.13
+      "import": 0.08,
+      "planner": 5.09,
+      "job": 8.6,
+      "total": 13.79
     },
     "cost": {
-      "planner_usd": 0.000941,
-      "jev_usd_from_measured_tokens": 0.043131,
-      "jev_usd_reported_by_job": 0.043131,
-      "jev_input_tokens": 1026920,
+      "planner_usd": 0.00097,
+      "jev_usd_from_measured_tokens": 0.038259,
+      "jev_usd_reported_by_job": 0.038259,
+      "jev_input_tokens": 910920,
       "jev_requests": 200,
       "jev_cache_hits": 0,
-      "jev_route_requests": {
-        "direct": 107,
-        "openrouter": 93
-      },
-      "total_usd": 0.044072
+      "total_usd": 0.039229
     },
     "error": null
   },
@@ -279,27 +256,27 @@
     ],
     "gold_pairs": 400,
     "pipeline": {
-      "pairs": 151,
+      "pairs": 175,
       "status_counts": {
-        "uncertain": 109,
-        "matched": 151,
-        "unmatched": 140
+        "matched": 175,
+        "uncertain": 86,
+        "unmatched": 139
       },
-      "tp": 148,
-      "fp": 3,
-      "fn": 252,
-      "precision": 0.9801,
-      "recall": 0.37,
-      "f1": 0.5372,
+      "tp": 170,
+      "fp": 5,
+      "fn": 230,
+      "precision": 0.9714,
+      "recall": 0.425,
+      "f1": 0.5913,
       "diagnostics": {
         "candidates_per_row": 5,
         "accept_min": 0.8,
         "reject_max": 0.3,
         "gold_entry_among_candidates": 266,
         "candidate_recall": 0.665,
-        "gold_candidate_accepted_by_jev": 149,
-        "gold_candidate_left_uncertain": 90,
-        "gold_candidate_rejected_by_jev": 27,
+        "gold_candidate_accepted_by_jev": 171,
+        "gold_candidate_left_uncertain": 69,
+        "gold_candidate_rejected_by_jev": 26,
         "note": "recall lost before Jev = offers whose true entry was not among the lexical candidates; recall lost at Jev = true entry present but scored below accept_min"
       }
     },
@@ -313,13 +290,19 @@
       "f1": 0.9194
     },
     "agreement": {
-      "both": 148,
-      "only_a": 3,
-      "only_b": 209,
-      "jaccard": 0.4111
+      "both": 168,
+      "only_a": 7,
+      "only_b": 189,
+      "jaccard": 0.4615
     },
     "examples": {
       "pipeline_wrong": [
+        {
+          "offer_id": 5578260,
+          "title": "Jabra Biz 2300 USB Duo Headset",
+          "chosen": 76663119,
+          "gold": 90972374
+        },
         {
           "offer_id": 28769706,
           "title": "AirPods 2 with Wireless Charging Case",
@@ -331,6 +314,12 @@
           "title": "TP-Link EAP225-Outdoor Wireless-AC1200 MU-MIMO Gigabit Indoor/Outdoor Access Poi",
           "chosen": 31785582,
           "gold": 36061219
+        },
+        {
+          "offer_id": 43630137,
+          "title": "Jabra BIZ 2400 II Mono 3-1 - Mic. 82 NC, Wideband",
+          "chosen": 51760904,
+          "gold": 19751845
         },
         {
           "offer_id": 73554318,
@@ -391,5 +380,5 @@
       ]
     }
   },
-  "generated_at": "2026-09-22T03:47:51Z"
+  "generated_at": "2026-09-21T23:44:25Z"
 }

@@ -33,13 +33,13 @@
     "plan": {
       "plan_version": "1",
       "source": {
-        "dataset_id": "ds_cfe761b46e924051",
-        "version_id": "v_1cfe44d676c4460e"
+        "dataset_id": "ds_9371d659b9854c29",
+        "version_id": "v_d48a12eb681e43a9"
       },
       "model": "jev-1.13.0",
       "steps": [
         {
-          "id": "annotate",
+          "id": "tag_recurring",
           "input": "source",
           "op": "semantic_annotate",
           "columns": [
@@ -52,10 +52,10 @@
             {
               "name": "recurring_charge",
               "kind": "boolean",
-              "instruction": "Based on the complaint details (which may be in any language; judge the meaning), is this complaint about charges that continued after the consumer cancelled a service or subscription, or about unauthorized recurring charges (e.g. billed after cancellation, subscription not really cancelled, or charges the consumer never authorized)?",
+              "instruction": "The text may be in any language; judge its meaning. Does this complaint describe charges continuing after the customer cancelled a service, subscription, or account, OR unauthorized charges and/or unwanted recurring (subscription/membership) charges being made without the customer's consent? Treat any phrasing that implies one of these (e.g. 'they kept billing me after I cancelled', 'I never signed up for this', 'unauthorized transactions', 'charge recurs every month despite cancellation') as satisfying the condition.",
               "criteria": {
-                "true": "The complaint indicates recurring charges that the consumer did not authorize, or charges/fees that continued after the consumer cancelled or attempted to cancel the underlying service or subscription. Stated statements imply this, e.g. 'unauthorized withdrawals or charges', 'I cancelled but was still billed', 'company won't stop charging me', 'charges continued after I closed the account'.",
-                "false": "The complaint is about something else, such as disputes over a single purchase, fees or interest on a card, incorrect credit report information, trouble getting or closing a card, debt collection notices, or problems making payments, with no continuing/unauthorized recurring charge involved."
+                "true": "The complaint is about: (a) charges/billing continuing after the customer cancelled or attempted to cancel, or (b) charges the customer did not authorize, or (c) recurring/subscription/membership charges the customer does not want or never agreed to. Implied statements count as evidence.",
+                "false": "The complaint is about something else, e.g. disputes over a single purchase, fees or interest, credit report errors, debt collection, trouble opening/closing/activating an account, or payment processing problems, without any cancelled-but-still-charged, unauthorized, or unwanted recurring charge element."
               },
               "thresholds": {
                 "true_min": 0.7,
@@ -64,11 +64,34 @@
               "options": null,
               "min_confidence": 0.0,
               "levels": null
-            },
+            }
+          ],
+          "on_missing": "unknown"
+        },
+        {
+          "id": "recurring_only",
+          "input": "tag_recurring",
+          "op": "filter",
+          "where": {
+            "column": "recurring_charge.value"
+          },
+          "unknown_policy": "separate"
+        },
+        {
+          "id": "urgency",
+          "input": "recurring_only",
+          "op": "semantic_annotate",
+          "columns": [
+            "Product",
+            "Sub-product",
+            "Issue",
+            "Sub-issue"
+          ],
+          "questions": [
             {
-              "name": "urgency",
+              "name": "urgency_score",
               "kind": "score",
-              "instruction": "Rate the urgency of handling this complaint, based on the complaint details (which may be in any language; judge the meaning). Consider financial harm to the consumer, whether the harmful charging is likely still ongoing, and signs of consumer distress or inaction by the company.",
+              "instruction": "Rate how urgent this complaint is for prioritized handling. Complaints where money is still actively being taken after cancellation or repeatedly without consent are most urgent; historical or one-off occurrences are less urgent.",
               "criteria": null,
               "thresholds": {
                 "true_min": 0.85,
@@ -77,61 +100,73 @@
               "options": null,
               "min_confidence": 0.0,
               "levels": [
-                "0 - Lowest urgency: routine complaint with minimal or unclear financial impact and no indication of ongoing harm",
-                "1 - Low urgency: minor inconvenience or small amount involved, harm not clearly ongoing",
-                "2 - Moderate urgency: meaningful charges or fees at stake, possibly ongoing",
-                "3 - High urgency: significant or repeated charges, strong indication the charging is still ongoing, or the company is refusing to stop or refund",
-                "4 - Highest urgency: severe ongoing financial harm, many unauthorized charges, account or credit seriously affected, or the company is ignoring the consumer's cancellation or refund demands"
+                "Low urgency: historical, minor, or one-off issue with little indication of ongoing financial harm.",
+                "Moderate urgency: unauthorized or unwanted recurring charges occurred, but the ongoing status is unclear or appears isolated.",
+                "High urgency: charges are still actively recurring or continuing after cancellation, or repeated unauthorized charges suggest immediate ongoing financial harm to the consumer."
               ]
             }
           ],
           "on_missing": "unknown"
         },
         {
-          "id": "filter_recurring",
-          "input": "annotate",
-          "op": "filter",
-          "where": {
-            "column": "recurring_charge.value"
-          },
-          "unknown_policy": "separate"
-        },
-        {
-          "id": "rank_by_urgency",
-          "input": "filter_recurring",
+          "id": "rank_urgent",
+          "input": "urgency",
           "op": "sort",
           "by": [
             {
-              "column": "urgency.score",
+              "column": "urgency_score.score",
+              "direction": "desc"
+            },
+            {
+              "column": "Date received",
               "direction": "desc"
             }
           ]
+        },
+        {
+          "id": "final_cols",
+          "input": "rank_urgent",
+          "op": "project",
+          "columns": [
+            "row_id",
+            "Date received",
+            "Product",
+            "Sub-product",
+            "Issue",
+            "Sub-issue",
+            "Company",
+            "State",
+            "recurring_charge.value",
+            "recurring_charge.score",
+            "urgency_score.value",
+            "urgency_score.score"
+          ]
         }
       ],
-      "output": "rank_by_urgency",
-      "title": "Recurring/unauthorized charge complaints ranked by urgency",
-      "description": "Flags complaints about charges continuing after cancellation or unauthorized recurring charges, filters to those, and ranks them by urgency (score 0-4). Edit the urgency rubric or the filter threshold if you want a broader or narrower review set."
+      "output": "final_cols",
+      "title": "Find post-cancellation / unauthorized recurring charge complaints and rank by urgency",
+      "description": "Filters complaints to those where charges continued after the customer cancelled or unauthorized/recurring charges occurred, then scores each matching complaint for urgency and ranks them most urgent first. Adjust the urgency rubric levels or the true_min threshold if you want a broader/narrower match set."
     },
     "planner": {
       "provider": "openrouter",
       "model": "z-ai/glm-5.3-flash",
       "reasoning_effort": "high",
-      "latency_ms": 10194,
+      "latency_ms": 27298,
       "usage": {
-        "input_tokens": 4287,
-        "output_tokens": 1037,
-        "reasoning_tokens": 334,
+        "input_tokens": 3672,
+        "output_tokens": 902,
+        "reasoning_tokens": 79,
         "cost_usd": 0
       },
       "attempts": 1,
-      "title": "Recurring/unauthorized charge complaints ranked by urgency",
-      "description": "Flags complaints about charges continuing after cancellation or unauthorized recurring charges, filters to those, and ranks them by urgency (score 0-4). Edit the urgency rubric or the filter threshold if you want a broader or narrower review set.",
+      "title": "Find post-cancellation / unauthorized recurring charge complaints and rank by urgency",
+      "description": "Filters complaints to those where charges continued after the customer cancelled or unauthorized/recurring charges occurred, then scores each matching complaint for urgency and ranks them most urgent first. Adjust the urgency rubric levels or the true_min threshold if you want a broader/narrower match set.",
       "cost": {
-        "usd": 0.001162,
+        "usd": 0.001002,
         "source": "list_price",
-        "input_tokens": 4287,
-        "output_tokens": 1037,
-        "reasoning_tokens": 334,
+        "input_tokens": 3672,
+        "output_tokens": 902,
+        "reasoning_tokens": 79,
         "prices_per_mtok": {
           "input": 0.15,
           "cached_input": 0.15,
@@ -143,62 +178,96 @@
       "source_rows": 5000,
       "semantic_rows": 5000,
       "inference_attempts": 10000,
-      "provider_requests": 500,
-      "input_tokens": 3441083,
-      "estimated_cost_usd": 0.144525,
+      "provider_requests": 1000,
+      "input_tokens": 3507166,
+      "estimated_cost_usd": 0.147301,
       "candidate_pairs": 0,
       "cache_hits_estimated": 0,
       "stages": [
         {
-          "step": "annotate",
+          "step": "tag_recurring",
           "kind": "annotate",
           "rows": 5000,
           "rows_bound": "exact",
-          "questions": 2,
-          "inference_attempts": 10000,
+          "questions": 1,
+          "inference_attempts": 5000,
           "cache_hits_estimated": 0,
           "requests": 500,
-          "input_tokens": 3441083,
-          "mean_tokens_per_row": 684.2,
-          "estimated_cost_usd": 0.144525
+          "input_tokens": 2101083,
+          "mean_tokens_per_row": 416.2,
+          "estimated_cost_usd": 0.088245
+        },
+        {
+          "step": "urgency",
+          "kind": "annotate",
+          "rows": 5000,
+          "rows_bound": "upper_bound",
+          "questions": 1,
+          "inference_attempts": 5000,
+          "cache_hits_estimated": 0,
+          "requests": 500,
+          "input_tokens": 1406083,
+          "mean_tokens_per_row": 277.2,
+          "estimated_cost_usd": 0.059055
         }
       ],
-      "quota_floor_seconds": 25.0
+      "quota_floor_seconds": 50.0
     },
     "job": {
-      "job_id": "job_781975bdba584719",
+      "job_id": "job_04aab5d79d0f4afb",
       "state": "succeeded",
       "terminal_reason": null,
       "usage": {
-        "input_tokens": 333279,
-        "output_tokens": 25339,
-        "provider_requests": 72,
-        "spent_usd": 0.013998,
+        "input_tokens": 239307,
+        "output_tokens": 15604,
+        "provider_requests": 79,
+        "spent_usd": 0.010051,
         "reserved_usd": 0.0,
-        "cache_hits": 8778,
-        "ambiguous_attempts": 0
+        "cache_hits": 4494,
+        "ambiguous_attempts": 0,
+        "route_requests": {
+          "direct": 40,
+          "openrouter": 39
+        }
       },
       "progress": {
         "stages": {
-          "annotate": {
+          "tag_recurring": {
             "rows_total": 5000,
-            "rows_succeeded": 4926,
-            "rows_uncertain": 74,
+            "rows_succeeded": 4894,
+            "rows_uncertain": 106,
             "rows_missing": 0,
             "rows_failed": 0,
             "rows_skipped": 0,
             "rows_pending": 0,
-            "cache_hits": 8778,
-            "inference_attempts": 1222,
+            "cache_hits": 4389,
+            "inference_attempts": 611,
             "provider_requests": 72,
             "pairs": 0,
             "chunks_committed": 26,
             "chunks_total": 26,
             "rows_beyond_cap": 0,
             "complete": true
+          },
+          "urgency": {
+            "rows_total": 170,
+            "rows_succeeded": 170,
+            "rows_uncertain": 0,
+            "rows_missing": 0,
+            "rows_failed": 0,
+            "rows_skipped": 0,
+            "rows_pending": 0,
+            "cache_hits": 105,
+            "inference_attempts": 65,
+            "provider_requests": 7,
+            "pairs": 0,
+            "chunks_committed": 2,
+            "chunks_total": 2,
+            "rows_beyond_cap": 0,
+            "complete": true
           }
         },
-        "rows_examined": 5000,
+        "rows_examined": 5170,
         "rows_remaining": 0,
         "errors": 0
       },
@@ -206,31 +275,37 @@
       "errors": []
     },
     "step_rows": {
-      "annotate": 5000,
-      "filter_recurring": 10,
-      "rank_by_urgency": 10
+      "tag_recurring": 5000,
+      "recurring_only": 170,
+      "urgency": 170,
+      "rank_urgent": 170,
+      "final_cols": 170
     },
     "datasets": {
       "consumer_complaints": {
-        "dataset_id": "ds_cfe761b46e924051",
-        "version_id": "v_1cfe44d676c4460e",
+        "dataset_id": "ds_9371d659b9854c29",
+        "version_id": "v_d48a12eb681e43a9",
         "row_count": 5000
       }
     },
     "timings_seconds": {
       "import": 0.11,
-      "planner": 10.23,
-      "job": 4.92,
-      "total": 15.33
+      "planner": 27.35,
+      "job": 6.9,
+      "total": 34.46
     },
     "cost": {
-      "planner_usd": 0.001162,
-      "jev_usd_from_measured_tokens": 0.013998,
-      "jev_usd_reported_by_job": 0.013998,
-      "jev_input_tokens": 333279,
-      "jev_requests": 72,
-      "jev_cache_hits": 8778,
-      "total_usd": 0.01516
+      "planner_usd": 0.001002,
+      "jev_usd_from_measured_tokens": 0.010051,
+      "jev_usd_reported_by_job": 0.010051,
+      "jev_input_tokens": 239307,
+      "jev_requests": 79,
+      "jev_cache_hits": 4494,
+      "jev_route_requests": {
+        "direct": 40,
+        "openrouter": 39
+      },
+      "total_usd": 0.011053
     },
     "error": null
   },
@@ -273,21 +348,25 @@
       "The 2026 CFPB export has no free-text narratives; both approaches judge the Product / Issue / Sub-issue text, so matches are rare. There is no gold label; 169 rows carry a topical keyword (unauthorized / cancel / recurring / continuing / can't stop withdrawals) and the share of selected rows carrying one is reported only as a sanity check."
     ],
     "pipeline": {
-      "selected": 10,
-      "from_step": "rank_by_urgency",
-      "keyword_rows_selected": 10,
-      "keyword_share": 1.0,
+      "selected": 170,
+      "from_step": "final_cols",
+      "keyword_rows_selected": 133,
+      "keyword_share": 0.7824,
       "review_view": {
         "recurring_charge": {
-          "uncertain": 74
+          "uncertain": 106
         },
-        "urgency": {}
+        "urgency_score": {}
       },
       "oneshot_rows_in_review_view": 0,
-      "review_view_rows_with_keyword": 74,
+      "review_view_rows_with_keyword": 1,
       "top_10": [
         {
-          "row_id": 1951,
+          "row_id": 4558,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 2631,
           "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
         },
         {
@@ -295,11 +374,7 @@
           "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
         },
         {
-          "row_id": 1954,
-          "text": "Payday loan, title loan, personal loan, or advance loan | Can't stop withdrawals from your bank account | "
-        },
-        {
-          "row_id": 2631,
+          "row_id": 1951,
           "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
         },
         {
@@ -315,15 +390,15 @@
           "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
         },
         {
-          "row_id": 4558,
-          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
-        },
-        {
-          "row_id": 951,
-          "text": "Debt or credit management | Unauthorized withdrawals or charges | "
+          "row_id": 1954,
+          "text": "Payday loan, title loan, personal loan, or advance loan | Can't stop withdrawals from your bank account | "
         },
         {
           "row_id": 1396,
+          "text": "Debt or credit management | Unauthorized withdrawals or charges | "
+        },
+        {
+          "row_id": 951,
           "text": "Debt or credit management | Unauthorized withdrawals or charges | "
         }
       ]
@@ -369,12 +444,12 @@
     },
     "agreement": {
       "both": 8,
-      "only_a": 2,
+      "only_a": 162,
       "only_b": 0,
-      "jaccard": 0.8,
+      "jaccard": 0.0471,
       "rank_spearman_on_common": {
         "n": 8,
-        "rho": -0.0476
+        "rho": 0.2857
       },
       "top_20_overlap": {
         "k": 20,
@@ -384,16 +459,40 @@
     "examples": {
       "only_pipeline": [
         {
-          "row_id": 951,
-          "text": "Debt or credit management | Unauthorized withdrawals or charges | "
+          "row_id": 4,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Transaction was not authorized"
         },
         {
-          "row_id": 1396,
-          "text": "Debt or credit management | Unauthorized withdrawals or charges | "
+          "row_id": 19,
+          "text": "Credit card | Problem with a purchase shown on your statement | Card was charged for something you did not purchase with the card"
+        },
+        {
+          "row_id": 25,
+          "text": "Money transfer, virtual currency, or money service | Unauthorized transactions or other transaction problem | "
+        },
+        {
+          "row_id": 45,
+          "text": "Money transfer, virtual currency, or money service | Unauthorized transactions or other transaction problem | "
+        },
+        {
+          "row_id": 81,
+          "text": "Money transfer, virtual currency, or money service | Unauthorized transactions or other transaction problem | "
+        },
+        {
+          "row_id": 91,
+          "text": "Credit card | Problem with a purchase shown on your statement | Card was charged for something you did not purchase with the card"
+        },
+        {
+          "row_id": 106,
+          "text": "Credit card | Problem with a purchase shown on your statement | Card was charged for something you did not purchase with the card"
+        },
+        {
+          "row_id": 122,
+          "text": "Money transfer, virtual currency, or money service | Unauthorized transactions or other transaction problem | "
         }
       ],
       "only_oneshot": []
     }
   },
-  "generated_at": "2026-09-21T23:44:25Z"
+  "generated_at": "2026-09-22T03:47:51Z"
 }

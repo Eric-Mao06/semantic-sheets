@@ -1,5 +1,5 @@
 {
-  "run": "planner-glm-5.3-flash",
+  "run": "planner-glm-5.3-flash-run1",
   "planner_config": {
     "provider": "openrouter",
     "model": "z-ai/glm-5.3-flash",
@@ -26,33 +26,33 @@
     }
   ],
   "notes": [
-    "Bounded to 1200 reviews (many languages) so the one-shot request fits comfortably in context: all 70 reviews in the 5,000-review sample that mention Wi-Fi / internet at all (positive or negative) plus 1130 random others, shuffled. No gold label; the keyword share is reported as a sanity check (a review can report bad Wi-Fi without using the word, and most Wi-Fi mentions are positive)."
+    "Bounded to 1200 reviews (many languages) so the one-shot request fits comfortably in context: all 70 reviews in the 5,000-review sample that mention Wi-Fi / internet at all (positive or negative) plus 1130 random others, shuffled. No gold label; the keyword share is reported as a sanity check (a review can report bad Wi-Fi without using the word, and most Wi-Fi mentions are positive).",
+    "Earlier GLM 5.3 Flash planner run; Jev called through the TypeSafe API only (JEV_ROUTES=direct)."
   ],
   "pipeline": {
     "plan": {
       "plan_version": "1",
       "source": {
-        "dataset_id": "ds_1316de5bf96f4151",
-        "version_id": "v_738eb95dd82a487b"
+        "dataset_id": "ds_1362ed5670114c77",
+        "version_id": "v_12b35307c69b4a12"
       },
       "model": "jev-1.13.0",
       "steps": [
         {
-          "id": "wifi_flag",
+          "id": "flag_wifi",
           "input": "source",
           "op": "semantic_annotate",
           "columns": [
-            "comments",
-            "listing_name"
+            "comments"
           ],
           "questions": [
             {
-              "name": "wifi_issue",
+              "name": "wifi_unreliable",
               "kind": "boolean",
-              "instruction": "The text (which may be in any language; judge its meaning) is a review of a rental listing. Does this review report unreliable Wi-Fi or internet — meaning it complains about or mentions problems such as slow, dropping, weak, intermittent, or non-working Wi-Fi/internet? Only complaints or reports of problems count; praise of Wi-Fi or not mentioning it at all counts as false.",
+              "instruction": "Does this guest review report problems with unreliable Wi-Fi? The text may be in any language; judge the meaning, not the language. Count it as true if the guest complains about Wi-Fi being slow, dropping, not working, weak, or otherwise unreliable (e.g. 'the wifi kept cutting out', 'internet was terrible, could barely connect', 'el wifi no funcionaba'). Do NOT count praise for good or fast Wi-Fi, listings that merely advertise Wi-Fi, or reviews that never mention internet/Wi-Fi.",
               "criteria": {
-                "true": "The review reports a Wi-Fi/internet problem, including indirect statements like 'had to use mobile data because the connection kept dropping' or 'the internet was unusable'.",
-                "false": "The review does not report any Wi-Fi/internet problem (Wi-Fi absent, praised, or not mentioned)."
+                "true": "The review reports an actual problem with the Wi-Fi/internet at the property being unreliable: slow, intermittent, dropping, weak signal, or not working. Implied complaints count (e.g. 'had to use my phone hotspot because the wifi was useless' implies unreliable Wi-Fi).",
+                "false": "The review does not report any Wi-Fi reliability problem: no mention of Wi-Fi/internet, Wi-Fi mentioned only positively or neutrally (e.g. 'fast Wi-Fi', 'great amenities including wifi'), or problems with other things entirely."
               },
               "thresholds": {
                 "true_min": 0.7,
@@ -67,20 +67,20 @@
         },
         {
           "id": "wifi_rows",
-          "input": "wifi_flag",
+          "input": "flag_wifi",
           "op": "filter",
           "where": {
-            "column": "wifi_issue.value"
+            "column": "wifi_unreliable.value"
           },
           "unknown_policy": "separate"
         },
         {
-          "id": "price_num",
+          "id": "with_price",
           "input": "wifi_rows",
           "op": "compute",
           "columns": [
             {
-              "name": "price_number",
+              "name": "nightly_price_num",
               "expr": {
                 "op": "to_number",
                 "args": [
@@ -93,45 +93,45 @@
           ]
         },
         {
-          "id": "by_property",
-          "input": "price_num",
+          "id": "by_listing",
+          "input": "with_price",
           "op": "aggregate",
           "group_by": [
             "listing_id",
             "listing_name",
-            "borough",
-            "room_type"
+            "neighbourhood",
+            "borough"
           ],
           "metrics": [
             {
-              "name": "wifi_complaints",
+              "name": "wifi_complaint_reviews",
               "fn": "count",
               "column": null
             },
             {
               "name": "avg_nightly_price",
               "fn": "avg",
-              "column": "price_number"
+              "column": "nightly_price_num"
             },
             {
               "name": "min_nightly_price",
               "fn": "min",
-              "column": "price_number"
+              "column": "nightly_price_num"
             },
             {
               "name": "max_nightly_price",
               "fn": "max",
-              "column": "price_number"
+              "column": "nightly_price_num"
             }
           ]
         },
         {
           "id": "sorted",
-          "input": "by_property",
+          "input": "by_listing",
           "op": "sort",
           "by": [
             {
-              "column": "wifi_complaints",
+              "column": "wifi_complaint_reviews",
               "direction": "desc"
             },
             {
@@ -142,29 +142,29 @@
         }
       ],
       "output": "sorted",
-      "title": "Reviews reporting unreliable Wi-Fi, grouped by property",
-      "description": "Flags reviews whose text reports unreliable or problematic Wi-Fi, keeps the flagged rows, then groups by listing to count Wi-Fi complaints and compare nightly prices (average and range). Edit the confidence threshold or question criteria to make the flag stricter or looser. Listings without a numeric price are excluded from the price metrics but still counted."
+      "title": "Reviews reporting unreliable Wi-Fi grouped by property with price comparison",
+      "description": "Flags each review for complaints about unreliable Wi-Fi, keeps only flagged rows, converts the text nightly price to a number, and aggregates by listing to show review count and average nightly price per property. Adjust the true_min threshold to be stricter or looser about what counts as a Wi-Fi reliability complaint."
     },
     "planner": {
       "provider": "openrouter",
       "model": "z-ai/glm-5.3-flash",
       "reasoning_effort": "high",
-      "latency_ms": 14882,
+      "latency_ms": 9820,
       "usage": {
-        "input_tokens": 4429,
-        "output_tokens": 581,
-        "reasoning_tokens": 34,
+        "input_tokens": 4970,
+        "output_tokens": 912,
+        "reasoning_tokens": 164,
         "cost_usd": 0
       },
       "attempts": 1,
-      "title": "Reviews reporting unreliable Wi-Fi, grouped by property",
-      "description": "Flags reviews whose text reports unreliable or problematic Wi-Fi, keeps the flagged rows, then groups by listing to count Wi-Fi complaints and compare nightly prices (average and range). Edit the confidence threshold or question criteria to make the flag stricter or looser. Listings without a numeric price are excluded from the price metrics but still counted.",
+      "title": "Reviews reporting unreliable Wi-Fi grouped by property with price comparison",
+      "description": "Flags each review for complaints about unreliable Wi-Fi, keeps only flagged rows, converts the text nightly price to a number, and aggregates by listing to show review count and average nightly price per property. Adjust the true_min threshold to be stricter or looser about what counts as a Wi-Fi reliability complaint.",
       "cost": {
-        "usd": 0.000955,
+        "usd": 0.001201,
         "source": "list_price",
-        "input_tokens": 4429,
-        "output_tokens": 581,
-        "reasoning_tokens": 34,
+        "input_tokens": 4970,
+        "output_tokens": 912,
+        "reasoning_tokens": 164,
         "prices_per_mtok": {
           "input": 0.15,
           "cached_input": 0.15,
@@ -177,13 +177,13 @@
       "semantic_rows": 1200,
       "inference_attempts": 1200,
       "provider_requests": 120,
-      "input_tokens": 396870,
-      "estimated_cost_usd": 0.016669,
+      "input_tokens": 489490,
+      "estimated_cost_usd": 0.020559,
       "candidate_pairs": 0,
       "cache_hits_estimated": 0,
       "stages": [
         {
-          "step": "wifi_flag",
+          "step": "flag_wifi",
           "kind": "annotate",
           "rows": 1200,
           "rows_bound": "exact",
@@ -191,33 +191,29 @@
           "inference_attempts": 1200,
           "cache_hits_estimated": 0,
           "requests": 120,
-          "input_tokens": 396870,
-          "mean_tokens_per_row": 326.7,
-          "estimated_cost_usd": 0.016669
+          "input_tokens": 489490,
+          "mean_tokens_per_row": 403.9,
+          "estimated_cost_usd": 0.020559
         }
       ],
       "quota_floor_seconds": 6.0
     },
     "job": {
-      "job_id": "job_c53fbfaf832340e3",
+      "job_id": "job_1f7bdce126c34e67",
       "state": "succeeded",
       "terminal_reason": null,
       "usage": {
-        "input_tokens": 360608,
-        "output_tokens": 25680,
+        "input_tokens": 433043,
+        "output_tokens": 29280,
         "provider_requests": 120,
-        "spent_usd": 0.015146,
+        "spent_usd": 0.018188,
         "reserved_usd": 0.0,
         "cache_hits": 0,
-        "ambiguous_attempts": 0,
-        "route_requests": {
-          "direct": 65,
-          "openrouter": 55
-        }
+        "ambiguous_attempts": 0
       },
       "progress": {
         "stages": {
-          "wifi_flag": {
+          "flag_wifi": {
             "rows_total": 1200,
             "rows_succeeded": 1199,
             "rows_uncertain": 1,
@@ -243,37 +239,33 @@
       "errors": []
     },
     "step_rows": {
-      "wifi_flag": 1200,
+      "flag_wifi": 1200,
       "wifi_rows": 16,
-      "price_num": 16,
-      "by_property": 16,
+      "with_price": 16,
+      "by_listing": 16,
       "sorted": 16
     },
     "datasets": {
       "airbnb_reviews": {
-        "dataset_id": "ds_1316de5bf96f4151",
-        "version_id": "v_738eb95dd82a487b",
+        "dataset_id": "ds_1362ed5670114c77",
+        "version_id": "v_12b35307c69b4a12",
         "row_count": 1200
       }
     },
     "timings_seconds": {
       "import": 0.06,
-      "planner": 14.92,
-      "job": 3.63,
-      "total": 18.72
+      "planner": 9.86,
+      "job": 4.25,
+      "total": 14.26
     },
     "cost": {
-      "planner_usd": 0.000955,
-      "jev_usd_from_measured_tokens": 0.015146,
-      "jev_usd_reported_by_job": 0.015146,
-      "jev_input_tokens": 360608,
+      "planner_usd": 0.001201,
+      "jev_usd_from_measured_tokens": 0.018188,
+      "jev_usd_reported_by_job": 0.018188,
+      "jev_input_tokens": 433043,
       "jev_requests": 120,
       "jev_cache_hits": 0,
-      "jev_route_requests": {
-        "direct": 65,
-        "openrouter": 55
-      },
-      "total_usd": 0.016101
+      "total_usd": 0.019389
     },
     "error": null
   },
@@ -320,21 +312,21 @@
       "from_step": "wifi_rows",
       "keyword_share": 1.0,
       "review_view": {
-        "wifi_issue": {
+        "wifi_unreliable": {
           "uncertain": 1
         }
       },
       "properties": 16,
       "aggregate_check": {
-        "aggregate_step": "by_property",
+        "aggregate_step": "by_listing",
         "groups": 16,
         "grouped_by": [
           "listing_id",
           "listing_name",
-          "borough",
-          "room_type"
+          "neighbourhood",
+          "borough"
         ],
-        "count_metric": "wifi_complaints",
+        "count_metric": "wifi_complaint_reviews",
         "total_count_in_aggregate": 16,
         "flagged_reviews": 16
       },
@@ -472,5 +464,5 @@
       ]
     }
   },
-  "generated_at": "2026-09-22T03:47:51Z"
+  "generated_at": "2026-09-21T23:44:25Z"
 }

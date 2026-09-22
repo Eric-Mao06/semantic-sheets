@@ -12,7 +12,7 @@ sys.path.insert(0, str(HERE))
 from common import ASTRA_PRICES, JEV_PRICE_PER_MTOK_INPUT, LONG_CONTEXT_INPUT_TOKENS, PLANNER_PRICES, RESULTS_DIR  # noqa: E402
 
 ORDER = ["support_requests", "banking_queries", "cfpb_complaints", "airbnb_reviews", "retail_gift_categories", "wdc_product_matching"]
-RUN_ORDER = ["planner-gpt-6-astra", "planner-glm-5.3-flash"]
+RUN_ORDER = ["planner-gpt-6-astra", "planner-glm-5.3-flash-run1", "planner-glm-5.3-flash"]
 
 
 def _f(x: Any, nd: int = 2, pct: bool = False) -> str:
@@ -93,7 +93,9 @@ def _tokens(r: dict[str, Any]) -> tuple[str, str]:
     pc = r["pipeline"].get("cost") or {}
     pl = (r["pipeline"].get("planner") or {}).get("usage") or {}
     ou = r["oneshot"].get("usage") or {}
-    p = f"planner {pl.get('input_tokens') or 0:,} in / {pl.get('output_tokens') or 0:,} out; Jev {pc.get('jev_input_tokens') or 0:,} in over {pc.get('jev_requests') or 0:,} requests"
+    routes = pc.get("jev_route_requests") or {}
+    route_s = (" (" + ", ".join(f"{n} {k}" for k, n in sorted(routes.items())) + ")") if routes else ""
+    p = f"planner {pl.get('input_tokens') or 0:,} in / {pl.get('output_tokens') or 0:,} out; Jev {pc.get('jev_input_tokens') or 0:,} in over {pc.get('jev_requests') or 0:,} requests{route_s}"
     o = f"{ou.get('input_tokens') or 0:,} in / {ou.get('output_tokens') or 0:,} out (reasoning {ou.get('reasoning_tokens') or 0:,})"
     return p, o
 
@@ -149,7 +151,11 @@ def _price_line() -> str:
 def render(results: list[dict[str, Any]]) -> str:
     model, provider, effort = _planner_desc(results)
     out: list[str] = []
-    out.append(f"# Benchmark run: operators with `{model}` planner vs. one-shot gpt-6-astra\n")
+    run = results[0].get("run") or ""
+    out.append(f"# Benchmark run `{run}`: operators with `{model}` planner vs. one-shot gpt-6-astra\n")
+    for n in results[0].get("notes") or []:
+        if "Earlier" in n or "JEV_ROUTES" in n:
+            out.append(n + "\n")
     out.append("Both arms receive the **same prompt** and the **same CSV** (label and leak columns removed, explicit `row_id`).\n")
     out.append(f"- **Operators (this repo):** `{model}` (reasoning `{effort}`, via {provider}) sees only the schema and ≤ 20 sample rows and writes a typed plan; "
                "`jev-1.13.0` answers the per-row semantic questions; DuckDB does the filtering, sorting, joins and arithmetic.\n"
@@ -229,11 +235,16 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
     out.append(_price_line())
     names = [r for r in RUN_ORDER if r in runs] + [r for r in runs if r not in RUN_ORDER]
     descs = {r: _planner_desc(runs[r]) for r in names}
-    out.append("| Run | Planner | Provider | Details |")
-    out.append("|---|---|---|---|")
+    out.append("| Run | Planner | Provider | Jev routes | Details |")
+    out.append("|---|---|---|---|---|")
     for r in names:
         m, prov, eff = descs[r]
-        out.append(f"| `{r}` | `{m}` (reasoning `{eff}`) | {prov} | [results/{r}/RESULTS.md](results/{r}/RESULTS.md) |")
+        routes: dict[str, int] = {}
+        for x in runs[r]:
+            for k, n in ((x["pipeline"].get("cost") or {}).get("jev_route_requests") or {}).items():
+                routes[k] = routes.get(k, 0) + int(n)
+        route_s = ", ".join(f"{k} ({n} requests)" for k, n in sorted(routes.items())) if routes else "direct"
+        out.append(f"| `{r}` | `{m}` (reasoning `{eff}`) | {prov} | {route_s} | [results/{r}/RESULTS.md](results/{r}/RESULTS.md) |")
     out.append("")
     by_run = {r: {x["scenario"]: x for x in runs[r]} for r in names}
     base = runs[names[0]]

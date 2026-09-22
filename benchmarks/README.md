@@ -5,14 +5,20 @@ For each of the six operations exercised in the MVP walkthrough, this benchmark 
 
 | Arm | What happens |
 |---|---|
-| **Operators** (this repo) | A planner model sees only the schema and ≤ 20 sample rows and writes a typed plan. `jev-1.13.0` answers every per-row semantic question; DuckDB performs the filtering, sorting, joins and arithmetic. Uncertain judgements go to a review view instead of the output. Run twice: planner `gpt-6-astra` (reasoning `high`, OpenAI) and planner `z-ai/glm-5.3-flash` (reasoning `high`, OpenRouter). |
+| **Operators** (this repo) | A planner model sees only the schema and ≤ 20 sample rows and writes a typed plan. `jev-1.13.0` answers every per-row semantic question; DuckDB performs the filtering, sorting, joins and arithmetic. Uncertain judgements go to a review view instead of the output. Three runs: planner `gpt-6-astra` (reasoning `high`, OpenAI) with Jev direct; planner `z-ai/glm-5.3-flash` (reasoning `high`, OpenRouter) with Jev direct (`run1`); and the same GLM planner with Jev spread over TypeSafe direct **and** OpenRouter's decisions endpoint (`planner-glm-5.3-flash`). |
 | **One-shot** | `gpt-6-astra` (reasoning `high`) receives the whole CSV plus the prompt in a single Responses API request and must return the final answer as JSON that satisfies a strict schema. No tools, no code execution. |
 
-Full numbers, every plan the planner wrote, and examples of disagreements: **[RESULTS.md](RESULTS.md)** (cross-planner
-summary), `results/<run>/RESULTS.md` (per planner) and `results/<run>/*.json` (raw). Prices are OpenAI, OpenRouter and
-TypeSafe list prices as of 2026-09-21 and costs are computed from the token usage each API reported. Jev is called
-directly through the TypeSafe API: it is not listed on OpenRouter (checked 2026-09-21), and its request shape (state +
-questions → probabilities) is not chat-completions compatible, so there is no second route to add rate limit with.
+Full numbers, every plan the planner wrote, and examples of disagreements: **[RESULTS.md](RESULTS.md)** (cross-run
+summary), `results/<run>/RESULTS.md` (per run) and `results/<run>/*.json` (raw). Prices are OpenAI, OpenRouter and
+TypeSafe list prices as of 2026-09-21 and costs are computed from the token usage each API reported.
+
+Jev is available two ways and the engine uses both by default (`JEV_ROUTES=direct,openrouter`): `POST
+https://api.typesafe.ai/v1/systemone` with a TypeSafe key, and `POST https://openrouter.ai/api/alpha/decisions` with an
+OpenRouter key (model id `typesafe/jev-1.13`; it is a "decisions" model, so it does not appear in OpenRouter's chat
+model list). The request and answer shapes are identical, the token counts match to the token, and the price is the same
+$0.042 / M input (OpenRouter reports the cost inline). Each route keeps its own request/token buckets and concurrency
+in `server/semsheet/engine/jev.py`, packets go to the least-loaded route, and a 429/5xx on one route is retried on the
+other, so two routes give roughly twice the throughput.
 
 ## Scenarios
 
@@ -31,34 +37,44 @@ Tables are bounded so the one-shot request stays under gpt-6-astra's 272K-token 
 
 ## Results (single run per scenario and planner, 2026-09-21)
 
-The one-shot answers are the same in both rows of each scenario; only the planner behind the operators changes.
+The one-shot answers are the same in every row of each scenario; only the operator side changes. `GLM run1` is the
+GLM 5.3 Flash planner with Jev direct only; `GLM run2` is the same planner with Jev over both routes and a fresh plan.
 
-| Scenario | Operators, `gpt-6-astra` planner | Operators, `glm-5.3-flash` planner | One-shot (Astra) | Cost: Astra planner / GLM planner / one-shot |
-|---|---|---|---|---|
-| Support: cancel because unaffordable | 7 rows, P 100% / R 78% | 2 rows, P 100% / R 22%, **+6 gold rows in review view** | 9 rows, P 100% / R 100% | $0.086 / $0.034 / $0.51 |
-| Banking: transfer problems (lenient gold) | pending F1 69%, failed F1 58% | pending F1 87%, failed F1 57% | pending F1 80%, failed F1 75% | $0.126 / $0.045 / $0.96 |
-| Complaints: filter + rank | 0 rows accepted, **10 in review view** (incl. all 8 the one-shot picked) | 10 rows ranked (incl. all 8 the one-shot picked), 74 in review view | 8 rows ranked | $0.120 / $0.015 / $2.13 |
-| Airbnb: unreliable Wi-Fi by property | 16 reviews / 16 properties, aggregate exact | 16 reviews / 16 properties, aggregate exact | 17 reviews / 17 properties, 16 of 17 prices right | $0.127 / $0.019 / $1.35 |
-| Retail: categories + revenue by country | 11 categories, **376 / 376 revenue cells exact** | 8 categories over 267 products (33 in review), **278 / 278 cells exact** | 3 categories, 53 / 83 cells exact, worst cell off by $46,503 | $0.147 / $0.0065 / $5.07 (26 min) |
-| Product matching | 171 pairs, P 97% / R 42% (+75 gold pairs in review) | 175 pairs, P 97% / R 43% (+69 gold pairs in review) | 357 pairs, P 97% / R 87% | $0.115 / $0.039 / $1.53 |
-| **Total** | | | | **$0.72 (16×) / $0.16 (73×) / $11.55** |
+| Scenario | Operators, `gpt-6-astra` planner | Operators, GLM run1 | Operators, GLM run2 (dual-route Jev) | One-shot (Astra) | Cost: Astra / GLM run1 / GLM run2 / one-shot |
+|---|---|---|---|---|---|
+| Support: cancel because unaffordable | 7 rows, P 100% / R 78% | 2 rows, P 100% / R 22%, **+6 gold rows in review** | 3 rows, P 100% / R 33%, **+4 gold rows in review** | 9 rows, P 100% / R 100% | $0.086 / $0.034 / $0.035 / $0.51 |
+| Banking: transfer problems (lenient gold) | pending F1 69%, failed F1 58% | pending F1 87%, failed F1 57% | pending F1 58%, failed F1 39% | pending F1 80%, failed F1 75% | $0.126 / $0.045 / $0.056 / $0.96 |
+| Complaints: filter + rank | 0 rows accepted, **10 in review** (incl. all 8 the one-shot picked) | 10 rows ranked (incl. all 8), 74 in review | 170 rows ranked (incl. all 8; 78% carry a keyword), 106 in review | 8 rows ranked | $0.120 / $0.015 / $0.011 / $2.13 |
+| Airbnb: unreliable Wi-Fi by property | 16 reviews / 16 properties, aggregate exact | 16 / 16, aggregate exact | 16 / 16, aggregate exact | 17 reviews / 17 properties, 16 of 17 prices right | $0.127 / $0.019 / $0.016 / $1.35 |
+| Retail: categories + revenue by country | 11 categories, **376 / 376 revenue cells exact** | 8 categories over 267 products (33 in review), 278 / 278 exact | 7 categories over 300 products, **267 / 267 exact** | 3 categories, 53 / 83 cells exact, worst cell off by $46,503 | $0.147 / $0.0065 / $0.0058 / $5.07 (26 min) |
+| Product matching | 171 pairs, P 97% / R 42% (+75 gold pairs in review) | 175 pairs, P 97% / R 43% (+69 in review) | 151 pairs, P 98% / R 37% (+90 in review) | 357 pairs, P 97% / R 87% | $0.115 / $0.039 / $0.044 / $1.53 |
+| **Total** | | | | | **$0.72 (16×) / $0.16 (73×) / $0.17 (69×) / $11.55** |
 
 ### What the numbers say
 
 - **Cost.** With the Astra planner the operators cost 6–34× less than the one-shot (16× overall) and 79% of that is the
   single planner call. Swapping the planner to GLM 5.3 Flash cuts the planner to $0.0007–$0.0012 per scenario (4% of
-  the total); the operators then cost $0.16 for all six scenarios, 73× less than the one-shot, and are Jev-dominated.
-  Jev itself is $0.006–$0.05 per scenario ($0.15 for all six) and grows linearly with rows (the 5,000-row CFPB job used
-  204K Jev tokens for $0.009), so the 100K-row walkthrough would be about $0.17 of Jev, while the one-shot cannot run at
-  that size at any price.
-- **Latency.** Operators finish in 20–50 s with the Astra planner (15–50 s of it planning) and 13–25 s with GLM 5.3 Flash
-  (5–12 s planning); the Jev stage takes 1–14 s for 300–5,000 rows. The one-shot took 27 s to 26 min (the retail aggregation).
-- **Planner swap.** GLM 5.3 Flash produced a valid plan on the first attempt for all six scenarios and matched or beat
-  the Astra planner on four (banking pending-F1 87% vs 69%, CFPB 10 accepted rows vs 0, Airbnb and matching equal). It
-  lost on support, where its Jev question required the message to *both* ask for a cancellation *and* give affordability
-  as the reason, while the Astra plan explicitly told Jev that "I cannot afford order 123" counts on its own. Jev
-  scored those messages 0.3–0.7 under GLM's wording, so 6 of the 9 gold rows went to the review view instead of the
-  output (2 accepted + 6 in review = 8 of 9 reachable). Question wording, not model size, drove the difference.
+  the total); the operators then cost $0.16–0.17 for all six scenarios, about 70× less than the one-shot, and are
+  Jev-dominated. Jev itself is $0.005–$0.055 per scenario ($0.15 for all six) and grows linearly with rows (the
+  5,000-row CFPB job used 204K Jev tokens for $0.009), so the 100K-row walkthrough would be about $0.17 of Jev, while
+  the one-shot cannot run at that size at any price. Routing half of Jev through OpenRouter changes nothing on price.
+- **Latency.** Operators finish in 20–50 s with the Astra planner (15–50 s of it planning) and 10–35 s with GLM 5.3
+  Flash (5–28 s planning). The Jev stage with one route took 1–14 s for 300–5,000 rows; with two routes the three
+  larger jobs went from 13.3 → 7.5 s (support, 300 requests), 13.7 → 9.2 s (banking, 308) and 8.6 → 4.7 s (matching,
+  200), about 1.8× throughput, with packets split 55 / 45 between direct and OpenRouter. The small jobs were already
+  bound by per-request latency (~250 ms) and did not change. The one-shot took 27 s to 26 min (the retail aggregation).
+- **Planner swap.** GLM 5.3 Flash produced a valid plan on the first attempt in 11 of 12 scenario runs and, per
+  scenario, sometimes beat the Astra planner (banking pending-F1 87% vs 69% in run1; CFPB 10 accepted rows vs 0) and
+  sometimes lost (support 22–33% recall vs 78%). Its support loss is a review-pile case: GLM's Jev question required the
+  message to *both* ask for a cancellation *and* give affordability as the reason, while the Astra plan explicitly told
+  Jev that "I cannot afford order 123" counts on its own. Jev scored those messages 0.3–0.7 under GLM's wording, so 4–6
+  of the 9 gold rows went to the review view instead of the output. Question wording, not model size, drove the
+  difference.
+- **Planner variance is larger than the planner-model gap.** Two GLM runs with identical inputs differed more from each
+  other than from the Astra planner: banking pending-F1 87% → 58% (run2's `failed_transfer` option read "declined,
+  bounced, reversed, returned…" and swept in 257 rows against 80 gold), and CFPB 10 → 170 accepted rows (run2 added
+  "(b) charges the customer did not authorize" to the true-criteria, which is any unauthorized charge, not a recurring
+  one). Every one of these differences is in plain text in the plan panel before the job runs.
 - **Arithmetic and structure.** Where the request needs exact numbers the operators are exact by construction
   (376 / 376 revenue cells, every Airbnb count and price). The one-shot got 30 of 83 revenue cells wrong (28 by more than 0.5%; total off by
   $79K, 0.8%) and one nightly price wrong, and collapsed the taxonomy to 3 categories.
@@ -73,10 +89,10 @@ The one-shot answers are the same in both rows of each scenario; only the planne
     they are not silently lost either; one review pass recovers them and the corrections version the result.
   - *Literal judgement*: "I can't pay for purchase …" and "I can no longer pay for purchase …" were scored as confident
     negatives for "cancel because they cannot afford it" and did not reach review.
-- **Planner variance.** The plan is a fresh generation each run. Three CFPB plans produced three different boolean
+- **Planner variance.** The plan is a fresh generation each run. Four CFPB plans produced four different boolean
   questions (`recurring_charge_match` on 2,000 rows accepted 3 rows; `ongoing_charges` on 5,000 rows accepted 0 and
-  reviewed 10; GLM's `recurring_charge` accepted 10 and reviewed 74). Question wording and thresholds are the biggest
-  quality lever in the operator arm, and they are editable before anything runs.
+  reviewed 10; GLM's `recurring_charge` accepted 10 and reviewed 74, then 170 and 106). Question wording and thresholds
+  are the biggest quality lever in the operator arm, and they are editable before anything runs.
 
 ### Why flagged rows are not in the final result (the review pile)
 
@@ -107,7 +123,8 @@ result"; the review counts are reported alongside so the recall lost to threshol
 
 ### Caveats
 
-- One run per scenario and planner; no repeats, so small differences (16 vs 17 reviews, 171 vs 175 pairs) are within noise.
+- One run per scenario per configuration (two for the GLM planner); small differences (16 vs 17 reviews, 151–175 pairs)
+  are within noise, and the two GLM runs show how wide that noise is on the scenarios that hinge on question wording.
 - GLM 5.3 Flash spent 17–334 reasoning tokens per plan at `reasoning_effort: high`; OpenRouter's inline `usage.cost`
   came back as 0 for this model, so its planner cost is computed from the list price.
 - Ground truth is a proxy on four of six scenarios (see the notes in each result), and the CFPB export has no
@@ -123,8 +140,9 @@ export OPENAI_API_KEY=... TYPESAFE_API_KEY=...
 .venv/bin/python benchmarks/run.py                 # both arms, all scenarios, gpt-6-astra planner (~$12 of gpt-6-astra, ~$0.15 of Jev)
 .venv/bin/python benchmarks/run.py -s wdc_product_matching --arms pipeline
 .venv/bin/python benchmarks/run.py --reuse oneshot # rerun operators + comparison, reuse stored one-shot answers
-export OPENROUTER_API_KEY=...
+export OPENROUTER_API_KEY=...                      # enables Jev over both routes (JEV_ROUTES=direct,openrouter) and the OpenRouter planner
 .venv/bin/python benchmarks/run.py --planner-provider openrouter --planner-model z-ai/glm-5.3-flash --reuse oneshot
+JEV_ROUTES=direct .venv/bin/python benchmarks/run.py ...   # pin Jev to the TypeSafe API only
 .venv/bin/python benchmarks/report.py              # regenerate RESULTS.md and results/<run>/RESULTS.md
 ```
 
