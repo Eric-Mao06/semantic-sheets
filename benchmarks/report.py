@@ -80,10 +80,20 @@ def _cost_row(r: dict[str, Any]) -> tuple[str, str, str, str]:
     planner = pc.get("planner_usd")
     jev = pc.get("jev_usd_from_measured_tokens")
     total = pc.get("total_usd")
-    return (f"{_usd(planner)} planner + {_usd(jev)} Jev = **{_usd(total)}**" if total is not None else "–",
+    if pc.get("total_usd_comparable") is not None:
+        total = pc["total_usd_comparable"]
+        jev_s = f"{_usd(pc.get('jev_usd_source_run'))} Jev (scores re-served from cache, {_f(pc.get('jev_cache_share'), pct=True)} hits; source run's Jev cost shown)"
+    else:
+        jev_s = f"{_usd(jev)} Jev"
+    return (f"{_usd(planner)} planner + {jev_s} = **{_usd(total)}**" if total is not None else "–",
             f"**{_usd(oc.get('usd'))}**" if oc else "–",
             f"{(total or 0) and oc.get('usd') and round(oc['usd'] / total, 1) or '–'}×" if total and oc.get("usd") else "–",
             "")
+
+
+def _total(r: dict[str, Any]) -> float:
+    c = r["pipeline"].get("cost") or {}
+    return float(c.get("total_usd_comparable") if c.get("total_usd_comparable") is not None else (c.get("total_usd") or 0.0))
 
 
 def _latency(r: dict[str, Any]) -> tuple[str, str]:
@@ -207,7 +217,7 @@ def render(results: list[dict[str, Any]]) -> str:
         cp, co, ratio, _ = _cost_row(r)
         lp, lo = _latency(r)
         out.append(f"| {r['title']} | {cp} | {co} | {ratio} | {lp} | {lo} |")
-        tot_p += (r["pipeline"].get("cost") or {}).get("total_usd") or 0.0
+        tot_p += _total(r)
         tot_o += (r["oneshot"].get("cost") or {}).get("usd") or 0.0
     out.append(f"| **Total** | **{_usd(tot_p)}** | **{_usd(tot_o)}** | {round(tot_o / tot_p, 1) if tot_p else '–'}× | | |")
     out.append("")
@@ -319,8 +329,11 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
                 continue
             c = x["pipeline"].get("cost") or {}
             t = x["pipeline"].get("timings_seconds") or {}
-            totals[r] += c.get("total_usd") or 0.0
-            cells.append(f"{_usd(c.get('planner_usd'))} planner + {_usd(c.get('jev_usd_from_measured_tokens'))} Jev = **{_usd(c.get('total_usd'))}** · {t.get('planner', 0):.0f}s + {t.get('job', 0):.0f}s")
+            totals[r] += _total(x)
+            if c.get("total_usd_comparable") is not None:
+                cells.append(f"{_usd(c.get('planner_usd'))} planner + {_usd(c.get('jev_usd_source_run'))} Jev = **{_usd(_total(x))}** (cached scores; source run's cost and planner time) · {t.get('planner', 0):.0f}s + {t.get('job', 0):.0f}s")
+            else:
+                cells.append(f"{_usd(c.get('planner_usd'))} planner + {_usd(c.get('jev_usd_from_measured_tokens'))} Jev = **{_usd(c.get('total_usd'))}** · {t.get('planner', 0):.0f}s + {t.get('job', 0):.0f}s")
         out.append(f"| {r0['title']} | **{_usd(oc)}** · {_latency(r0)[1]} | " + " | ".join(cells) + " |")
     out.append("| **Total** | **" + _usd(tot_o) + "** | " + " | ".join(f"**{_usd(totals[r])}** ({round(tot_o / totals[r], 1) if totals[r] else '–'}× cheaper than one-shot)" for r in names) + " |")
     out.append("")

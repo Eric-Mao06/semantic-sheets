@@ -127,6 +127,56 @@ result"; the review counts are reported alongside so the recall lost to threshol
 - **Ambiguity is shared.** Most banking "errors" on both sides are queries about pending top-ups, card payments or
   withdrawals that the prompt's "pending transfers" may or may not cover; both arms made the same call on 94.5% of rows (κ 0.68).
 
+### Calibrated cuts: what changed in the engine, and the protocol against overfitting
+
+The review pile above is a threshold problem, so the engine now sets the threshold after seeing the scores
+(`server/semsheet/engine/calibrate.py`, applied by the executor once every chunk of a stage is committed):
+
+1. **Calibrate the cut on the observed scores.** For each boolean question (and for a match step's best-candidate
+   probabilities) the cut is Otsu's threshold on a 100-bin histogram of the scores: the split that maximises the
+   between-class variance, i.e. the gap between the two clusters when there are two. It uses no labels and has no
+   per-dataset knobs. Guards: the cut is clamped to [0.20, 0.80] (a cut outside that range means the scores are one
+   cluster, so the whole population falls on one side instead of splitting noise), and stages with fewer than 50
+   scored rows keep the planner's thresholds. Every scored row gets a value; there is no `uncertain` band.
+2. **Flag instead of withhold.** Rows within ±0.10 of the cut are marked in a new `<question>.near` / `match.near`
+   column. A filter's review view now lists those rows (on both sides of the cut) together with rows that have no
+   answer at all (missing input, provider failure), but the flagged rows also stay in the output, so downstream
+   sort/aggregate/join steps see them. The review view becomes a spot-check list rather than a bucket of dropped rows.
+
+`thresholds.mode: "fixed"` (or `threshold_mode: "fixed"` on a match step) restores the old three-way behaviour.
+
+The rule was designed with full knowledge of how these six scenarios behave, so a straight re-run would be a
+textbook case of tuning on the test set. The protocol below was written and committed **before** the calibrated
+benchmark run (`git log` on this file and on `calibrate.py` shows the order):
+
+- **Fixed rule, fixed constants.** Otsu / 100 bins / clamp [0.2, 0.8] / 50 rows / margin 0.10 were chosen from
+  first principles and are versioned as `otsu-v1`. They are not changed after seeing benchmark results; any future
+  change bumps the version so runs stay comparable.
+- **Unsupervised by construction.** The rule only sees the score histogram. No gold label is available to the engine.
+- **Held-out development check on disjoint rows.** Before the benchmark run, the same plans were executed on rows the
+  benchmark never uses (`benchmarks/calibration_dev.py`, seed 11, output in `results/calibration_dev.json`): 3,000
+  other Bitext messages, 5,000 other CFPB complaints with the same product mix, and 1,200 other Airbnb reviews of
+  which none contains the Wi-Fi keyword (a deliberate one-cluster stress test). Only unsupervised diagnostics were
+  recorded:
+
+  | Held-out set | Scores | Planner 0.7 / 0.3 would give | Calibrated cut | Result |
+  |---|---|---|---|---|
+  | Support (3,000) | 2,993 below 0.1; 1 at 0.1–0.2; 6 spread 0.4–1.0 | 4 true, 2 uncertain | 0.29 (Otsu, not clamped) | 6 true, 0 flagged |
+  | CFPB (5,000) | 4,831 below 0.1; 144 at 0.1–0.2; 20 at 0.2–0.7 | 0 true, 12 uncertain | 0.20 (Otsu 0.125, clamped up) | 20 true, 152 flagged near the cut |
+  | Airbnb (1,200) | all 1,200 below 0.1 (max 0.08) | 0 true, 0 uncertain | 0.20 (Otsu 0.02, clamped up) | 0 true, 0 flagged |
+
+  The cut lands in the gap when there is one, the clamp keeps a single cluster on one side, and the CFPB set shows the
+  cost of the design: a shoulder of low-but-not-zero scores (0.1–0.2) gets flagged for a spot check. Nothing in these
+  numbers was used to adjust the rule.
+- **Engine-only A/B.** The calibrated run re-submits the *plans the DeepSeek run produced* (`--plan-from`), so the
+  planner's wording, columns and question set are identical and the only difference is the cut. Because the
+  questions and rows are the same, Jev's answer cache serves the scores, which makes the two runs differ by the cut
+  alone (the source run's Jev cost is reported as the comparable cost).
+- **One run, reported as-is.** The calibrated benchmark is run once and its numbers go into the table unchanged.
+  Precision is reported next to recall so a permissive cut cannot hide behind a recall gain.
+- **Known limitation, stated up front.** Category questions (`min_confidence`) are not calibrated; the banking
+  scenario is unaffected by this change and is included only to confirm that.
+
 ### Two defects found and fixed while building the benchmark
 
 1. The planner prompt never described the `semantic_match` step, so the planner could not express matching and produced
