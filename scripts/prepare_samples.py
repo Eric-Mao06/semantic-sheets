@@ -1,8 +1,30 @@
 """Prepare demo/test sample CSVs from the raw downloads in data/raw.
 
-Usage: python scripts/prepare_samples.py [--only key,key]
+Usage (needs the server environment for duckdb, pandas and openpyxl):
+
+    cd server && uv sync && cd ..
+    server/.venv/bin/python scripts/prepare_samples.py [--only key,key]
+
 Outputs go to data/samples/. Large files are bounded on purpose: inference demos use 1,000-10,000 rows,
-except the Berkeley alumni landing sample (100,000 rows, the import cap)."""
+except the Berkeley alumni landing sample (100,000 rows, the import cap). The bounded files are checked in;
+the raw downloads and the larger scale files this script also writes are ignored by git.
+
+Expected inputs in data/raw/ (each step is skipped with an error message when its file is missing):
+
+    bitext.csv                       Bitext customer-support dataset (Hugging Face:
+                                     bitext/Bitext-customer-support-llm-chatbot-training-dataset, the CSV file)
+    banking77_test.csv               BANKING77 (github.com/PolyAI-LDN/task-specific-datasets, banking_data/)
+    banking77_train.csv
+    cfpb_complaints.csv.zip          CFPB Consumer Complaint Database full export
+                                     (files.consumerfinance.gov/ccdb/complaints.csv.zip)
+    airbnb_listings.csv.gz           Inside Airbnb, New York City (insideairbnb.com/get-the-data),
+    airbnb_reviews.csv.gz            listings.csv.gz and reviews.csv.gz of one snapshot
+    online_retail_ii.zip             UCI Online Retail II (archive.ics.uci.edu/dataset/502/online+retail+ii)
+    wdc_80pair.zip                   WDC Products, 80% corner cases / 20% random, unseen gold standard
+                                     (webdatacommons.org/largescaleproductcorpus/wdc-products)
+    berkeley_linkedin_profiles_compact.csv   Compact export of public UC Berkeley alumni profiles; not
+      or berkeley_alumni.zip                 redistributed here, the bounded 100,000-row sample is checked in
+"""
 from __future__ import annotations
 
 import argparse

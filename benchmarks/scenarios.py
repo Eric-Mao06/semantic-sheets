@@ -1,4 +1,4 @@
-"""Benchmark scenarios: the six operations exercised in the MVP walkthrough.
+"""Benchmark scenarios: the six suggested operations on the landing-page sample datasets.
 
 Each scenario prepares bounded CSVs from data/samples (label and leak columns removed, an explicit `row_id`
 added so both approaches refer to the same rows), defines the one-shot output schema, and compares the final
@@ -362,8 +362,8 @@ def prep_cfpb() -> Prepared:
     scale = SAMPLES_DIR / "cfpb_complaints_100k.csv"
     scale_tokens = estimate_tokens(scale.read_text(encoding="utf-8")) if scale.exists() else None
     return Prepared([table], gold={"keyword_rows": kw}, notes=[
-        f"The full 5,000-row demo sample (8 of the 15 columns) so the one-shot request stays under the 272K-token long-context tier; the 100,000-row file used in the "
-        f"walkthrough is ~{scale_tokens:,} tokens and cannot be sent to gpt-6-astra in one request at all." if scale_tokens else "The full 5,000-row demo sample (8 of the 15 columns).",
+        f"The full 5,000-row demo sample (8 of the 15 columns) so the one-shot request stays under the 272K-token long-context tier; the 100,000-row scale file "
+        f"is ~{scale_tokens:,} tokens and cannot be sent to gpt-6-astra in one request at all." if scale_tokens else "The full 5,000-row demo sample (8 of the 15 columns).",
         "The 2026 CFPB export has no free-text narratives; both approaches judge the Product / Issue / Sub-issue text, so matches are rare. "
         f"There is no gold label; {len(kw)} rows carry a topical keyword (unauthorized / cancel / recurring / continuing / can't stop withdrawals) and the share of selected rows "
         "carrying one is reported only as a sanity check."])

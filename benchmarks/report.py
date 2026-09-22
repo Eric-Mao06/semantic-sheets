@@ -282,7 +282,7 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
     """Top-level RESULTS.md: the one-shot baseline against the operators under each planner."""
     out: list[str] = []
     out.append("# Benchmark: Jev spreadsheet operators vs. one-shot gpt-6-astra\n")
-    out.append("Six walkthrough scenarios, each run two ways with the **same prompt and the same CSV**: the operators (planner writes a typed plan → `jev-1.13.0` "
+    out.append("Six scenarios, each run two ways with the **same prompt and the same CSV**: the operators (planner writes a typed plan → `jev-1.13.0` "
                "answers per row → DuckDB does the exact work) and a single `gpt-6-astra` (reasoning `high`) request holding the whole CSV. "
                "The operators were run once per planner model; the one-shot answers are shared across runs.\n")
     out.append(_price_line())
