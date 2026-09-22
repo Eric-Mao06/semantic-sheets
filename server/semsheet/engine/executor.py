@@ -26,13 +26,55 @@ from ..config import settings
 from ..db import Database, dumps, loads, new_id, now
 from ..models import JobLimits, Plan, Question, SemanticAnnotateStep, SemanticMatchStep
 from ..storage import build_context, derived_dir
-from . import jev
+from . import calibrate, jev
 from .exact import ROW_ID, compile_plan, connect, lit, q
 
 log = logging.getLogger("semsheet.executor")
 
 
 NOT_DISPATCHED = object()
+
+
+def _annotate_row_counts(table: pa.Table) -> dict[str, int]:
+    """Classify each row of a semantic_annotate chunk by the statuses of its questions."""
+    status_cols = [c for c in table.column_names if c.endswith(".status")]
+    near_cols = [c for c in table.column_names if c.endswith(".near")]
+    st_lists = [table.column(c).to_pylist() for c in status_cols]
+    near_lists = [table.column(c).to_pylist() for c in near_cols]
+    counts = {"succeeded": 0, "uncertain": 0, "flagged": 0, "missing": 0, "failed": 0, "skipped": 0}
+    for i in range(table.num_rows):
+        sts = [s[i] for s in st_lists]
+        if any(s in (jev.FAILED, jev.TOO_LONG) for s in sts):
+            counts["failed"] += 1
+        elif all(s == "skipped" for s in sts):
+            counts["skipped"] += 1
+        elif all(s == jev.MISSING for s in sts):
+            counts["missing"] += 1
+        elif any(s == jev.UNCERTAIN for s in sts):
+            counts["uncertain"] += 1
+        else:
+            counts["succeeded"] += 1
+            if any(bool(nl[i]) for nl in near_lists):
+                counts["flagged"] += 1
+    return counts
+
+
+def _match_row_counts(table: pa.Table, name: str) -> dict[str, int]:
+    sts = table.column(f"{name}.status").to_pylist()
+    near = table.column(f"{name}.near").to_pylist() if f"{name}.near" in table.column_names else [False] * len(sts)
+    return {
+        "failed": sum(1 for s in sts if s == jev.FAILED),
+        "uncertain": sum(1 for s in sts if s == "uncertain"),
+        "missing": sum(1 for s in sts if s == "no_candidates"),
+        "succeeded": sum(1 for s in sts if s in ("matched", "unmatched")),
+        "flagged": sum(1 for s, nr in zip(sts, near) if s in ("matched", "unmatched") and nr),
+    }
+
+
+def _replace_column(table: pa.Table, name: str, values: list[Any], typ: pa.DataType) -> pa.Table:
+    idx = table.schema.get_field_index(name)
+    arr = pa.array(values, typ)
+    return table.set_column(idx, pa.field(name, typ), arr) if idx >= 0 else table.append_column(pa.field(name, typ), arr)
 
 
 class StopJob(Exception):
@@ -47,6 +89,7 @@ class StageProgress:
     rows_total: int = 0
     rows_succeeded: int = 0
     rows_uncertain: int = 0
+    rows_flagged: int = 0  # answered, but within the flag margin of a calibrated cut (listed in review views)
     rows_missing: int = 0
     rows_failed: int = 0
     rows_skipped: int = 0
@@ -122,6 +165,8 @@ class JobRunner:
                     await self._run_annotate(job_id, ws_id, rv_id, plan, step, input_sql, limits, deadline, sp, usage, stages, manifest)
                 else:
                     await self._run_match(job_id, ws_id, rv_id, plan, step, input_sql, ctx, limits, deadline, sp, usage, stages, manifest)
+                if sp.rows_pending == 0:
+                    self._calibrate_stage(job_id, rv_id, step, sp, manifest)
                 sp.complete = sp.rows_pending == 0 and sp.rows_failed == 0 and sp.rows_beyond_cap == 0
                 manifest.setdefault("steps", {})[step.id] = sp.to_dict()
                 self._save(job_id, rv_id, stages, usage, manifest, bump=False)
@@ -315,6 +360,8 @@ class JobRunner:
                 arrays[f"{qn.name}.score"].append(interp["score"])
                 if qn.kind in ("category", "score"):
                     arrays[f"{qn.name}.confidence"].append(interp["confidence"])
+                else:
+                    arrays[f"{qn.name}.near"].append(False)
                 arrays[f"{qn.name}.status"].append(interp["status"])
                 arrays[f"{qn.name}.raw"].append(None if rraw is None else json.dumps(rraw, separators=(",", ":")))
         fields = [pa.field(ROW_ID, pa.int64())]
@@ -325,6 +372,8 @@ class JobRunner:
             fields.append(pa.field(f"{qn.name}.score", pa.float64())); columns.append(pa.array(arrays[f"{qn.name}.score"], pa.float64()))
             if qn.kind in ("category", "score"):
                 fields.append(pa.field(f"{qn.name}.confidence", pa.float64())); columns.append(pa.array(arrays[f"{qn.name}.confidence"], pa.float64()))
+            else:
+                fields.append(pa.field(f"{qn.name}.near", pa.bool_())); columns.append(pa.array(arrays[f"{qn.name}.near"], pa.bool_()))
             fields.append(pa.field(f"{qn.name}.status", pa.string())); columns.append(pa.array(arrays[f"{qn.name}.status"], pa.string()))
             fields.append(pa.field(f"{qn.name}.raw", pa.string())); columns.append(pa.array(arrays[f"{qn.name}.raw"], pa.string()))
         table = pa.Table.from_arrays(columns, schema=pa.schema(fields))
@@ -374,27 +423,14 @@ class JobRunner:
         final = out_dir / f"chunk_{idx:05d}.parquet"
         pq.write_table(table, tmp, compression="zstd")
         os.replace(tmp, final)
-        status_cols = [c for c in table.column_names if c.endswith(".status")]
         n = table.num_rows
-        st_lists = [table.column(c).to_pylist() for c in status_cols]
-        succeeded = uncertain = missing = failed = skipped = 0
-        for i in range(n):
-            sts = [s[i] for s in st_lists]
-            if any(s in (jev.FAILED, jev.TOO_LONG) for s in sts):
-                failed += 1
-            elif all(s == "skipped" for s in sts):
-                skipped += 1
-            elif all(s == jev.MISSING for s in sts):
-                missing += 1
-            elif any(s == jev.UNCERTAIN for s in sts):
-                uncertain += 1
-            else:
-                succeeded += 1
-        sp.rows_succeeded += succeeded
-        sp.rows_uncertain += uncertain
-        sp.rows_missing += missing
-        sp.rows_failed += failed
-        sp.rows_skipped += skipped
+        counts = _annotate_row_counts(table)
+        sp.rows_succeeded += counts["succeeded"]
+        sp.rows_uncertain += counts["uncertain"]
+        sp.rows_flagged += counts["flagged"]
+        sp.rows_missing += counts["missing"]
+        sp.rows_failed += counts["failed"]
+        sp.rows_skipped += counts["skipped"]
         sp.rows_pending = max(0, sp.rows_pending - n)
         sp.cache_hits += stats.get("cache_hits", 0)
         sp.inference_attempts += stats.get("attempts", 0)
@@ -412,6 +448,95 @@ class JobRunner:
         if stop is not None:
             self._stop_after_commit = None  # type: ignore[attr-defined]
             raise stop
+
+    # ------------------------------------------------------------------------------------------
+    # Post-stage: threshold calibration
+    # ------------------------------------------------------------------------------------------
+    def _calibrate_stage(self, job_id: str, rv_id: str, step: SemanticAnnotateStep | SemanticMatchStep, sp: StageProgress, manifest: dict[str, Any]) -> None:
+        """Once every chunk of a stage is committed, place each boolean cut on the observed score distribution
+        (see calibrate.py) and rewrite value/near/status in the chunk files from the stored scores.
+
+        Idempotent: everything is derived from <q>.score (and the candidate list for matches), never from the
+        previous value, so a resumed job can run it again safely."""
+        out_dir = derived_dir(rv_id, step.id)
+        files = sorted(out_dir.glob("chunk_*.parquet"))
+        if not files:
+            return
+        tables = [pq.read_table(f) for f in files]
+        cal_out = manifest.setdefault("calibration", {}).setdefault(step.id, {})
+        changed = False
+        if isinstance(step, SemanticAnnotateStep):
+            for qn in step.questions:
+                if qn.kind != "boolean":
+                    continue
+                scored = [(s, st) for t in tables for s, st in zip(t.column(f"{qn.name}.score").to_pylist(), t.column(f"{qn.name}.status").to_pylist())
+                          if s is not None and st in (jev.OK, jev.UNCERTAIN)]
+                cal = calibrate.calibrate([s for s, _ in scored], qn.thresholds.true_min, qn.thresholds.false_max, qn.thresholds.mode)
+                cal_out[qn.name] = cal.to_dict()
+                if cal.mode != "auto":
+                    continue
+                changed = True
+                for i, t in enumerate(tables):
+                    scores = t.column(f"{qn.name}.score").to_pylist()
+                    statuses = t.column(f"{qn.name}.status").to_pylist()
+                    values = t.column(f"{qn.name}.value").to_pylist()
+                    near = [False] * len(scores)
+                    for r, (s, st) in enumerate(zip(scores, statuses)):
+                        if s is None or st not in (jev.OK, jev.UNCERTAIN):
+                            continue
+                        values[r], near[r] = calibrate.decide(s, cal)
+                        statuses[r] = jev.OK
+                    t = _replace_column(t, f"{qn.name}.value", values, pa.bool_())
+                    t = _replace_column(t, f"{qn.name}.near", near, pa.bool_())
+                    tables[i] = _replace_column(t, f"{qn.name}.status", statuses, pa.string())
+        else:
+            n = step.name
+            scored = [s for t in tables for s, st in zip(t.column(f"{n}.score").to_pylist(), t.column(f"{n}.status").to_pylist())
+                      if s is not None and st in ("matched", "uncertain", "unmatched")]
+            cal = calibrate.calibrate(scored, step.accept_min, step.reject_max, step.threshold_mode)
+            cal_out[n] = cal.to_dict()
+            if cal.mode == "auto":
+                changed = True
+                for i, t in enumerate(tables):
+                    scores = t.column(f"{n}.score").to_pylist()
+                    statuses = t.column(f"{n}.status").to_pylist()
+                    rids = t.column(f"{n}.right_row_id").to_pylist()
+                    cands = t.column(f"{n}.candidates").to_pylist()
+                    near = [False] * len(scores)
+                    for r, (s, st) in enumerate(zip(scores, statuses)):
+                        if s is None or st not in ("matched", "uncertain", "unmatched"):
+                            continue
+                        cl = json.loads(cands[r]) if cands[r] else []
+                        scored_c = [c for c in cl if c.get("p_same") is not None]
+                        best = max(scored_c, key=lambda c: c["p_same"]) if scored_c else None
+                        is_match, near[r] = calibrate.decide(s, cal)
+                        if is_match:
+                            statuses[r] = "matched"
+                            rids[r] = best["right_row_id"] if best else rids[r]
+                        else:
+                            # a rejected row with an unscored candidate is still undecidable
+                            statuses[r] = "uncertain" if len(scored_c) < len(cl) else "unmatched"
+                            rids[r] = None
+                    t = _replace_column(t, f"{n}.right_row_id", rids, pa.int64())
+                    t = _replace_column(t, f"{n}.near", near, pa.bool_())
+                    tables[i] = _replace_column(t, f"{n}.status", statuses, pa.string())
+        if not changed:
+            return
+        for f, t in zip(files, tables):
+            tmp = f.with_name("." + f.name + ".tmp")
+            pq.write_table(t, tmp, compression="zstd")
+            os.replace(tmp, f)
+        # recount the stage from the rewritten chunks
+        totals = {"succeeded": 0, "uncertain": 0, "flagged": 0, "missing": 0, "failed": 0, "skipped": 0}
+        for t in tables:
+            c = _annotate_row_counts(t) if isinstance(step, SemanticAnnotateStep) else _match_row_counts(t, step.name)
+            for k, v in c.items():
+                totals[k] += v
+        sp.rows_succeeded, sp.rows_uncertain, sp.rows_flagged = totals["succeeded"], totals["uncertain"], totals["flagged"]
+        sp.rows_missing, sp.rows_failed = totals["missing"], totals["failed"]
+        if isinstance(step, SemanticAnnotateStep):
+            sp.rows_skipped = totals["skipped"]
+        self.db.append_event(job_id, "stage_calibrated", {"stage": step.id, "calibration": cal_out, "progress": sp.to_dict()})
 
     # ------------------------------------------------------------------------------------------
     # Stage: semantic_match
@@ -555,6 +680,7 @@ class JobRunner:
                 ROW_ID: pa.array(out[ROW_ID], pa.int64()),
                 f"{step.name}.right_row_id": pa.array(out[f"{step.name}.right_row_id"], pa.int64()),
                 f"{step.name}.score": pa.array(out[f"{step.name}.score"], pa.float64()),
+                f"{step.name}.near": pa.array([False] * len(out[ROW_ID]), pa.bool_()),
                 f"{step.name}.status": pa.array(out[f"{step.name}.status"], pa.string()),
                 f"{step.name}.candidates": pa.array(out[f"{step.name}.candidates"], pa.string()),
             })
@@ -566,12 +692,13 @@ class JobRunner:
         final = out_dir / f"chunk_{idx:05d}.parquet"
         pq.write_table(table, tmp, compression="zstd")
         os.replace(tmp, final)
-        sts = table.column(f"{step.name}.status").to_pylist()
-        n = len(sts)
-        sp.rows_failed += sum(1 for s in sts if s == jev.FAILED)
-        sp.rows_uncertain += sum(1 for s in sts if s == "uncertain")
-        sp.rows_missing += sum(1 for s in sts if s == "no_candidates")
-        sp.rows_succeeded += sum(1 for s in sts if s in ("matched", "unmatched"))
+        n = table.num_rows
+        counts = _match_row_counts(table, step.name)
+        sp.rows_failed += counts["failed"]
+        sp.rows_uncertain += counts["uncertain"]
+        sp.rows_missing += counts["missing"]
+        sp.rows_succeeded += counts["succeeded"]
+        sp.rows_flagged += counts["flagged"]
         sp.rows_pending = max(0, sp.rows_pending - n)
         sp.cache_hits += stats.get("cache_hits", 0)
         sp.inference_attempts += stats.get("attempts", 0)

@@ -51,7 +51,16 @@ Call.model_rebuild()
 
 
 class BooleanThresholds(BaseModel):
+    """How a boolean question's probability becomes a value.
+
+    mode=auto  -> the cut is calibrated from the score distribution once the whole stage has been scored
+                  (see engine/calibrate.py); every row gets a value, rows near the cut are flagged in <name>.near.
+                  true_min/false_max are only used as the fallback when there are too few scored rows.
+    mode=fixed -> classic three-way: score >= true_min is true, <= false_max is false, in between is 'uncertain'
+                  with a null value."""
+
     model_config = ConfigDict(extra="forbid")
+    mode: Literal["auto", "fixed"] = "auto"
     true_min: float = Field(0.85, ge=0.0, le=1.0)
     false_max: float = Field(0.15, ge=0.0, le=1.0)
 
@@ -65,7 +74,7 @@ class BooleanThresholds(BaseModel):
 class Question(BaseModel):
     """One semantic judgement applied to every row of the input.
 
-    kind=boolean  -> Jev Noul.   Outputs <name>.value (bool|null), <name>.score (p_yes), <name>.status
+    kind=boolean  -> Jev Noul.   Outputs <name>.value (bool|null), <name>.score (p_yes), <name>.near (bool: within the flag margin of the cut), <name>.status
     kind=category -> Jev Choice. Outputs <name>.value (label|null), <name>.score (p_top), <name>.confidence, <name>.status
     kind=score    -> Jev Score.  Outputs <name>.value (level label), <name>.score (expected level index), <name>.confidence, <name>.status
     """
@@ -101,6 +110,8 @@ class Question(BaseModel):
         cols = [(f"{self.name}.value", "semantic_value"), (f"{self.name}.score", "double"), (f"{self.name}.status", "status")]
         if self.kind in ("category", "score"):
             cols.insert(2, (f"{self.name}.confidence", "double"))
+        else:
+            cols.insert(2, (f"{self.name}.near", "flag"))
         return cols
 
 
@@ -202,8 +213,11 @@ class LimitStep(StepBase):
 class SemanticMatchStep(StepBase):
     """Candidate-limited semantic matching against a bounded right table.
 
-    Outputs: <name>.right_row_id, <name>.score, <name>.status (matched|uncertain|unmatched|no_candidates|failed),
-    <name>.candidates (JSON), plus right_prefix + right column for the accepted candidate."""
+    Outputs: <name>.right_row_id, <name>.score, <name>.near (bool), <name>.status (matched|uncertain|unmatched|no_candidates|failed),
+    <name>.candidates (JSON), plus right_prefix + right column for the accepted candidate.
+
+    threshold_mode=auto calibrates the accept cut from the distribution of best-candidate probabilities once the
+    stage is scored (accept_min/reject_max are the fallback for small inputs); fixed uses them as given."""
 
     op: Literal["semantic_match"]
     name: str = Field(default="match", pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
@@ -214,6 +228,7 @@ class SemanticMatchStep(StepBase):
     criteria: dict[Literal["true", "false"], str] | None = None
     candidates_per_row: int = Field(5, ge=1, le=5)
     blocking: JoinKey | None = Field(None, description="Optional exact blocking key (left column = right column)")
+    threshold_mode: Literal["auto", "fixed"] = "auto"
     accept_min: float = Field(0.8, ge=0.0, le=1.0)
     reject_max: float = Field(0.3, ge=0.0, le=1.0)
     right_output_columns: list[str] | None = None

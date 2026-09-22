@@ -60,7 +60,7 @@ export default function PlanPanel({ plan, validation, validating, validationErro
       if (s.op === "semantic_annotate") {
         for (const q of s.questions) {
           out.push(`${q.name}.value`, `${q.name}.score`, `${q.name}.status`);
-          if (q.kind !== "boolean") out.push(`${q.name}.confidence`);
+          out.push(q.kind !== "boolean" ? `${q.name}.confidence` : `${q.name}.near`);
         }
       } else if (s.op === "compute") out.push(...s.columns.map((c) => c.name));
       else if (s.op === "aggregate") out = ["_row_id", ...s.group_by, ...s.metrics.map((m) => m.name)];
@@ -390,10 +390,15 @@ function QuestionEditor({ q, onChange, onRemove }: { q: Question; onChange: (q: 
       <textarea value={q.instruction} onChange={(e) => onChange({ ...q, instruction: e.target.value })} />
       {q.kind === "boolean" && (
         <div className="kv">
-          <label>true when p ≥ {q.thresholds?.true_min ?? 0.85}</label>
-          <input type="range" min={0} max={1} step={0.01} value={q.thresholds?.true_min ?? 0.85} onChange={(e) => onChange({ ...q, thresholds: { true_min: Number(e.target.value), false_max: Math.min(q.thresholds?.false_max ?? 0.15, Number(e.target.value)) } })} />
-          <label>false when p ≤ {q.thresholds?.false_max ?? 0.15}</label>
-          <input type="range" min={0} max={1} step={0.01} value={q.thresholds?.false_max ?? 0.15} onChange={(e) => onChange({ ...q, thresholds: { true_min: Math.max(q.thresholds?.true_min ?? 0.85, Number(e.target.value)), false_max: Number(e.target.value) } })} />
+          <label>decision cut</label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" checked={(q.thresholds?.mode ?? "auto") === "auto"} onChange={(e) => onChange({ ...q, thresholds: { true_min: q.thresholds?.true_min ?? 0.85, false_max: q.thresholds?.false_max ?? 0.15, mode: e.target.checked ? "auto" : "fixed" } })} />
+            <span className="muted" style={{ fontSize: 12 }}>calibrate from the scores once the step has run (rows near the cut are flagged for review)</span>
+          </label>
+          <label>{(q.thresholds?.mode ?? "auto") === "auto" ? "fallback: " : ""}true when p ≥ {q.thresholds?.true_min ?? 0.85}</label>
+          <input type="range" min={0} max={1} step={0.01} value={q.thresholds?.true_min ?? 0.85} onChange={(e) => onChange({ ...q, thresholds: { ...q.thresholds, true_min: Number(e.target.value), false_max: Math.min(q.thresholds?.false_max ?? 0.15, Number(e.target.value)) } })} />
+          <label>{(q.thresholds?.mode ?? "auto") === "auto" ? "fallback: " : ""}false when p ≤ {q.thresholds?.false_max ?? 0.15}</label>
+          <input type="range" min={0} max={1} step={0.01} value={q.thresholds?.false_max ?? 0.15} onChange={(e) => onChange({ ...q, thresholds: { ...q.thresholds, true_min: Math.max(q.thresholds?.true_min ?? 0.85, Number(e.target.value)), false_max: Number(e.target.value) } })} />
           {q.criteria && (
             <>
               <label>yes means</label><input type="text" value={q.criteria.true ?? ""} onChange={(e) => onChange({ ...q, criteria: { ...q.criteria, true: e.target.value } })} />

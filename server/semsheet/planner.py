@@ -28,7 +28,8 @@ Execution model:
 - Jev cannot count, do arithmetic, compare dates, or generate text. Never ask it to. Use compute/aggregate for numbers.
 - Always include an "other" (or "insufficient_evidence") option in category taxonomies when the user did not supply exhaustive labels.
 - Do NOT show label/answer columns to the model when the user asks to evaluate accuracy against them (e.g. exclude columns named like intent/category/label/response when classifying the user text). Only include the input text columns needed for the judgement.
-- A semantic step must be placed before the exact steps that use its outputs. A filter that references <name>.value uses unknown_policy "separate" (default) so uncertain rows go to a review view.
+- A semantic step must be placed before the exact steps that use its outputs. A filter that references <name>.value uses unknown_policy "separate" (default) so rows without an answer, and rows near the decision cut, go to a review view.
+- Boolean thresholds and match accept/reject cuts are calibrated automatically from the observed score distribution once the stage is scored (mode "auto", default); the numbers you write are only the fallback for tiny inputs. Set "mode":"fixed" only when the user gives an explicit probability cutoff.
 - Ranking = score question + sort by <name>.score desc (tie-break is automatic). Rank descending for "most severe/urgent".
 - Group/aggregate = category question + aggregate step (group_by the .value column, metrics count/sum/avg/...). Always keep a count metric.
 - Matching rows of two tables that describe the same entity (same product, same company, same person) = ONE semantic_match step against the other dataset. Candidate retrieval (exact blocking plus lexical similarity) is automatic; Jev only verifies each candidate pair. Never emulate matching with join + semantic_annotate: join is exact-key only.

@@ -10,7 +10,7 @@ export type Question = {
   kind: "boolean" | "category" | "score";
   instruction: string;
   criteria?: { true?: string; false?: string } | null;
-  thresholds?: { true_min: number; false_max: number };
+  thresholds?: { true_min: number; false_max: number; mode?: "auto" | "fixed" };
   options?: Record<string, string | null> | null;
   min_confidence?: number;
   levels?: string[] | null;
@@ -80,7 +80,7 @@ export type DatasetInfo = {
 export type DatasetListItem = { dataset_id: string; name: string; latest_version_id: string; row_count: number; column_count: number; created_at: number; source_filename?: string };
 
 export type StageProgress = {
-  rows_total: number; rows_succeeded: number; rows_uncertain: number; rows_missing: number; rows_failed: number; rows_skipped: number; rows_pending: number;
+  rows_total: number; rows_succeeded: number; rows_uncertain: number; rows_flagged?: number; rows_missing: number; rows_failed: number; rows_skipped: number; rows_pending: number;
   cache_hits: number; inference_attempts: number; provider_requests: number; pairs: number; chunks_committed: number; chunks_total: number; rows_beyond_cap?: number; complete: boolean;
 };
 

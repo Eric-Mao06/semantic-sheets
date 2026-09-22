@@ -373,7 +373,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
             <span><b>{remaining.toLocaleString()}</b> remaining</span>
             <span><b>{job.progress.errors}</b> errors</span>
             {stageEntries.map(([id, s]) => (
-              <span key={id} title="succeeded / uncertain / missing input">{id}: {s.rows_succeeded}✓ {s.rows_uncertain}? {s.rows_missing}∅{s.rows_beyond_cap ? ` · ${s.rows_beyond_cap} beyond cap` : ""}</span>
+              <span key={id} title="succeeded / uncertain / flagged near the cut / missing input">{id}: {s.rows_succeeded}✓ {s.rows_uncertain}?{s.rows_flagged ? ` ${s.rows_flagged}⚑` : ""} {s.rows_missing}∅{s.rows_beyond_cap ? ` · ${s.rows_beyond_cap} beyond cap` : ""}</span>
             ))}
             <span>spend <b>${job.usage.spent_usd.toFixed(4)}</b> · {job.usage.provider_requests} requests · {job.usage.cache_hits} cache hits · {(job.usage.input_tokens / 1000).toFixed(1)}k tokens</span>
             {isRunning && <span className="spinner" />}

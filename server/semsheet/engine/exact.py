@@ -213,6 +213,8 @@ def semantic_output_columns(step: SemanticAnnotateStep) -> list[Column]:
                 vt = "boolean" if qn.kind == "boolean" else "text"
             elif t == "double":
                 vt = "double"
+            elif t == "flag":
+                vt = "boolean"
             else:
                 vt = "text"
             cols.append(Column(name, vt, "semantic"))
@@ -224,6 +226,7 @@ def match_output_columns(step: SemanticMatchStep) -> list[Column]:
     return [
         Column(f"{n}.right_row_id", "integer", "semantic"),
         Column(f"{n}.score", "double", "semantic"),
+        Column(f"{n}.near", "boolean", "semantic"),
         Column(f"{n}.status", "text", "semantic"),
         Column(f"{n}.candidates", "text", "semantic"),
     ]
@@ -304,6 +307,8 @@ class PlanCompiler:
                         expr = f"CASE WHEN ov_{qn.name}.row_id IS NOT NULL THEN 'override' ELSE {expr} END"
                 elif t == "double":
                     expr = f"CAST({base} AS DOUBLE)"
+                elif t == "flag":
+                    expr = f"COALESCE(CAST({base} AS BOOLEAN), FALSE)"
                 else:
                     expr = f"CAST({base} AS {value_type})"
                 selects.append(f"{expr} AS {q(name)}")
@@ -346,6 +351,7 @@ class PlanCompiler:
             selects += [
                 f"d.{q(n + '.right_row_id')} AS {q(n + '.right_row_id')}",
                 f"d.{q(n + '.score')} AS {q(n + '.score')}",
+                f"COALESCE(d.{q(n + '.near')}, FALSE) AS {q(n + '.near')}",
                 f"COALESCE(d.{q(n + '.status')}, 'pending') AS {q(n + '.status')}",
                 f"d.{q(n + '.candidates')} AS {q(n + '.candidates')}",
             ]
@@ -354,6 +360,7 @@ class PlanCompiler:
             selects += [
                 f"NULL::BIGINT AS {q(n + '.right_row_id')}",
                 f"NULL::DOUBLE AS {q(n + '.score')}",
+                f"FALSE AS {q(n + '.near')}",
                 f"'pending' AS {q(n + '.status')}",
                 f"NULL::VARCHAR AS {q(n + '.candidates')}",
             ]
@@ -379,8 +386,11 @@ class PlanCompiler:
             sql = f"SELECT * FROM {q(inp.name)} WHERE COALESCE({where}, FALSE) AND {good}"
             if step.unknown_policy == "separate":
                 review_name = f"{step.id}__review"
-                bad = " OR ".join(f"{q(s)} NOT IN {lit(list(GOOD_STATUSES))}" for s in statuses)
-                self.ctes.append((review_name, f"SELECT * FROM {q(inp.name)} WHERE {bad}"))
+                # Rows without a usable answer, plus rows that got one but sit within the flag margin of a
+                # calibrated cut (<q>.near): those stay in the output and are listed here for a spot check.
+                bad = [f"{q(s)} NOT IN {lit(list(GOOD_STATUSES))}" for s in statuses]
+                bad += [f"COALESCE({q(s[:-len('.status')] + '.near')}, FALSE)" for s in statuses if inp.has(s[:-len(".status")] + ".near")]
+                self.ctes.append((review_name, f"SELECT * FROM {q(inp.name)} WHERE {' OR '.join(bad)}"))
                 self.relations[review_name] = Relation(review_name, list(inp.columns), inp.row_preserving, dict(inp.semantic_statuses), list(inp.pending_statuses))
                 self.review[step.id] = review_name
         else:
