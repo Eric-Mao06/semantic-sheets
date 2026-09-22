@@ -18,6 +18,7 @@ data/samples/*
 !data/samples/online_retail_product_country.csv
 !data/samples/wdc_offers_left.csv
 !data/samples/wdc_catalog_right.csv
+!data/samples/berkeley_alumni_100k.csv
 benchmarks
 walkthroughs
 *.log

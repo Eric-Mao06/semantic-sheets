@@ -74,3 +74,14 @@ def test_berkeley_alumni_demo_imports(tmp_path: Path):
     names = {c["name"] for c in schema}
     assert {"name", "headline", "company", "role", "skills", "education_fields_of_study"} <= names
     assert report.row_count == 100_000 and report.rejected_rows == 0
+
+
+def test_landing_sample_files_are_docker_allowlisted():
+    """The image copies data/samples/, but .dockerignore only keeps an explicit allowlist."""
+    from semsheet.samples import SAMPLES
+
+    root = Path(__file__).resolve().parents[2]
+    dockerignore = (root / ".dockerignore").read_text()
+    for s in SAMPLES:
+        assert f"!data/samples/{s['file']}" in dockerignore, s["file"]
+        assert (root / "data" / "samples" / s["file"]).is_file(), s["file"]
