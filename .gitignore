@@ -1,11 +1,22 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node
 web/node_modules/
 web/dist/
-.pytest_cache/
-*.log
+
+# Local environment and logs
 .env
+*.log
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
 
 # Runtime data. Only the bounded demo datasets used by the landing page are versioned; the raw downloads and
 # the large scale files that scripts/prepare_samples.py also produces stay local.

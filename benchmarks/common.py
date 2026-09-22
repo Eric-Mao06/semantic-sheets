@@ -4,8 +4,9 @@ from __future__ import annotations
 import json
 import math
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLES_DIR = ROOT / "data" / "samples"
@@ -123,7 +124,7 @@ def cohens_kappa(labels_a: dict[Any, str], labels_b: dict[Any, str]) -> dict[str
     po = agree / len(keys)
     ca = Counter(labels_a[k] for k in keys)
     cb = Counter(labels_b[k] for k in keys)
-    pe = sum(ca[l] * cb.get(l, 0) for l in ca) / (len(keys) ** 2)
+    pe = sum(ca[label] * cb.get(label, 0) for label in ca) / (len(keys) ** 2)
     kappa = (po - pe) / (1 - pe) if pe < 1 else 1.0
     return {"n": len(keys), "agreement": _r(po), "kappa": _r(kappa)}
 

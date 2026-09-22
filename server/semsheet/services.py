@@ -4,21 +4,19 @@ Business logic lives here (not in route handlers or MCP tool handlers): validati
 querying, corrections, versioning and export."""
 from __future__ import annotations
 
-import csv
-import io
 import json
 import math
 import shutil
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import duckdb
 import pyarrow as pa
-import pyarrow.parquet as pq
 from pydantic import ValidationError
 
 from .config import settings
@@ -27,9 +25,17 @@ from .engine import jev
 from .engine.exact import ROW_ID, Compiled, ExprCompiler, PlanError, Relation, compile_plan, connect, lit, q
 from .importer import ImportError_, ImportOptions, checksum_file, import_file, report_to_dict, write_error_report
 from .models import (
-    AggregateStep, Expr, JobLimits, Plan, PlanEstimate, SemanticAnnotateStep, SemanticMatchStep, SortKey, SourceRef,
+    AggregateStep,
+    Expr,
+    JobLimits,
+    Plan,
+    PlanEstimate,
+    SemanticAnnotateStep,
+    SemanticMatchStep,
+    SortKey,
+    SourceRef,
 )
-from .storage import build_context, resolve_source, upload_path, version_parquet, export_path
+from .storage import build_context, export_path, resolve_source, upload_path, version_parquet
 
 
 class ServiceError(Exception):
@@ -174,7 +180,7 @@ class Services:
             report_path = settings.data_dir / "datasets" / dataset_id / "import_errors.csv"
             if e.report:
                 write_error_report(e.report, report_path)
-            raise ServiceError(e.code, str(e), 422, {**e.report, "error_report": f"/api/datasets/{dataset_id}/import-errors" if e.report else None})
+            raise ServiceError(e.code, str(e), 422, {**e.report, "error_report": f"/api/datasets/{dataset_id}/import-errors" if e.report else None}) from e
         # Preserve original bytes next to the snapshot.
         suffix = "".join(Path(filename).suffixes[-2:]) if filename else ".csv"
         kept = settings.data_dir / "datasets" / dataset_id / f"source{suffix or '.csv'}"
@@ -316,22 +322,22 @@ class Services:
             return Plan.model_validate(plan_obj)
         except ValidationError as e:
             issues = [{"path": ".".join(str(p) for p in err["loc"]), "code": err["type"], "message": err["msg"], "fix": None} for err in e.errors()]
-            raise ServiceError("invalid_plan", "Plan failed schema validation", 422, {"issues": issues[:20]})
+            raise ServiceError("invalid_plan", "Plan failed schema validation", 422, {"issues": issues[:20]}) from e
 
     def plans_validate(self, ws: Workspace, plan_obj: dict[str, Any], limits: JobLimits | None = None, store: bool = True) -> dict[str, Any]:
         plan = self.parse_plan(plan_obj)
         try:
             _, ver = resolve_source(self.db, ws.id, plan.source)
         except LookupError as e:
-            raise ServiceError("unknown_dataset", str(e), 404, {"issues": [{"path": "source", "code": "unknown_dataset", "message": str(e), "fix": "Use a dataset_id from datasets_list"}]})
+            raise ServiceError("unknown_dataset", str(e), 404, {"issues": [{"path": "source", "code": "unknown_dataset", "message": str(e), "fix": "Use a dataset_id from datasets_list"}]}) from e
         plan.source = SourceRef(dataset_id=plan.source.dataset_id, version_id=ver["id"])
         try:
             ctx = build_context(self.db, ws.id, plan, ver, None, None)
             compiled = compile_plan(plan, ctx)
         except LookupError as e:
-            raise ServiceError("unknown_dataset", str(e), 404, {"issues": [{"path": "steps", "code": "unknown_dataset", "message": str(e), "fix": None}]})
+            raise ServiceError("unknown_dataset", str(e), 404, {"issues": [{"path": "steps", "code": "unknown_dataset", "message": str(e), "fix": None}]}) from e
         except PlanError as e:
-            raise ServiceError("invalid_plan", e.message, 422, {"issues": [e.to_issue()]})
+            raise ServiceError("invalid_plan", e.message, 422, {"issues": [e.to_issue()]}) from e
         warnings: list[str] = []
         estimate = self._estimate(plan, compiled, ctx, ver, limits or JobLimits(), warnings, ws.id)
         # Ensure the SQL compiles for every step (types, functions).
@@ -340,7 +346,7 @@ class Services:
                 for step in plan.steps:
                     con.execute(f"DESCRIBE {compiled.sql_for(step.id)}")
         except duckdb.Error as e:
-            raise ServiceError("invalid_plan", f"Plan does not execute: {e}", 422, {"issues": [{"path": "steps", "code": "execution", "message": str(e)[:400], "fix": None}]})
+            raise ServiceError("invalid_plan", f"Plan does not execute: {e}", 422, {"issues": [{"path": "steps", "code": "execution", "message": str(e)[:400], "fix": None}]}) from e
         phash = plan_hash_of(plan)
         if store:
             existing = self.db.one("SELECT id FROM plans WHERE workspace_id=? AND plan_hash=?", (ws.id, phash))
@@ -355,7 +361,7 @@ class Services:
             "plan": plan.model_dump(mode="json"),
             "estimate": estimate.model_dump(),
             "warnings": warnings,
-            "required_scopes": ["read", "run"] + (["export"] if False else []),
+            "required_scopes": ["read", "run"],
             "output_columns": [{"name": c.name, "type": c.type, "role": c.role} for c in output_rel.columns],
             "review_views": list(compiled.review_relations.values()),
         }
@@ -474,7 +480,7 @@ class Services:
             try:
                 out = planner.compile_prompt(prompt, dataset_id, ver["id"], schema, sample, int(ver["row_count"]), others, previous_plan, feedback)
             except planner.PlannerError as e:
-                raise ServiceError("planner_failed", str(e), 502)
+                raise ServiceError("planner_failed", str(e), 502) from e
             plan_obj = out["plan"]
             try:
                 validated = self.plans_validate(ws, plan_obj, None, store=True)
@@ -529,7 +535,7 @@ class Services:
         try:
             lim = JobLimits.model_validate(limits or {})
         except ValidationError as e:
-            raise ServiceError("invalid_limits", "Invalid limits", 422, {"issues": [{"path": "limits." + ".".join(str(p) for p in err["loc"]), "code": err["type"], "message": err["msg"]} for err in e.errors()]})
+            raise ServiceError("invalid_limits", "Invalid limits", 422, {"issues": [{"path": "limits." + ".".join(str(p) for p in err["loc"]), "code": err["type"], "message": err["msg"]} for err in e.errors()]}) from e
         if lim.max_source_rows > settings.hard_max_source_rows:
             raise ServiceError("invalid_limits", f"max_source_rows exceeds the hard cap {settings.hard_max_source_rows}", 422)
         if plan_hash is None:
@@ -733,7 +739,7 @@ class Services:
                 where_sql = ec.compile(expr)
                 referenced_statuses = {rel.semantic_statuses[c] for c in ec.referenced if c in rel.semantic_statuses}
             except PlanError as e:
-                raise ServiceError("invalid_query", e.message, 422, {"issues": [e.to_issue()]})
+                raise ServiceError("invalid_query", e.message, 422, {"issues": [e.to_issue()]}) from e
         order_sql = None
         if sort:
             keys = []
@@ -741,7 +747,7 @@ class Services:
                 try:
                     sk = SortKey.model_validate(k)
                 except ValidationError as e:
-                    raise ServiceError("invalid_query", "Invalid sort key", 422, {"path": f"sort[{i}]", "error": str(e)[:200]})
+                    raise ServiceError("invalid_query", "Invalid sort key", 422, {"path": f"sort[{i}]", "error": str(e)[:200]}) from e
                 if not rel.has(sk.column):
                     raise ServiceError("invalid_query", f"Sort column '{sk.column}' does not exist", 422, {"issues": [{"path": f"sort[{i}].column", "code": "unknown_column", "message": "unknown column", "fix": f"Use one of: {', '.join(rel.column_names()[:30])}"}]})
                 keys.append(f"{q(sk.column)} {'DESC' if sk.direction == 'desc' else 'ASC'} NULLS LAST")
@@ -806,7 +812,7 @@ class Services:
         try:
             agg = AggregateStep.model_validate({"id": "adhoc", "op": "aggregate", "input": step, **aggregate})
         except ValidationError as e:
-            raise ServiceError("invalid_query", "Invalid aggregate", 422, {"error": str(e)[:300]})
+            raise ServiceError("invalid_query", "Invalid aggregate", 422, {"error": str(e)[:300]}) from e
         for g in agg.group_by:
             if not rel.has(g):
                 raise ServiceError("invalid_query", f"Group column '{g}' does not exist", 422)
@@ -828,7 +834,7 @@ class Services:
             denominator = int(con.execute(f"SELECT count(*) FROM ({base_sql}) v").fetchone()[0])
         bounded, _ = self._bound_rows(cols, rows[:limit], max_bytes, cell_chars)
         return {"result_version_id": rv["id"], "revision": rv["revision"], "step": step, "aggregate": True, "columns": [{"name": c} for c in cols], "rows": bounded,
-                "groups_truncated": len(rows) > limit, "denominator": denominator, "entity": "rows of step '%s'" % step,
+                "groups_truncated": len(rows) > limit, "denominator": denominator, "entity": f"rows of step '{step}'",
                 "provisional": bool(rel.pending_statuses), "warnings": warnings + ["exact arithmetic over model-assigned groups; denominator is the row count of the step"]}
 
     def results_cell(self, ws: Workspace, rv_id: str, step: str | None, row_id: int, column: str) -> dict[str, Any]:
@@ -853,7 +859,7 @@ class Services:
                 raise ServiceError("invalid_query", f"Column '{c}' does not exist", 422)
         with connect(compiled) as con:
             sel = ", ".join([q(ROW_ID)] + [q(c) for c in columns])
-            tbl = con.execute(f"SELECT {sel} FROM ({compiled.sql_for(step)}) v ORDER BY {q(ROW_ID)}").fetch_arrow_table()
+            tbl = con.execute(f"SELECT {sel} FROM ({compiled.sql_for(step)}) v ORDER BY {q(ROW_ID)}").to_arrow_table()
         out: dict[str, Any] = {"row_ids": tbl.column(ROW_ID).to_pylist(), "columns": {}, "revision": rv["revision"], "complete": not rel.pending_statuses}
         for c in columns:
             col = tbl.column(c)
@@ -864,7 +870,7 @@ class Services:
                 vals = col.to_pylist()
                 labels = sorted({v for v in vals if v is not None}, key=str)
                 index = {v: i for i, v in enumerate(labels)}
-                out["columns"][c] = {"kind": "label", "labels": [str(l) for l in labels], "values": [None if v is None else index[v] for v in vals]}
+                out["columns"][c] = {"kind": "label", "labels": [str(label) for label in labels], "values": [None if v is None else index[v] for v in vals]}
             out["columns"][c]["type"] = t
         return out
 
@@ -977,4 +983,4 @@ def _parse_expr(obj: dict[str, Any]) -> Expr:
     try:
         return TypeAdapter(Expr).validate_python(obj)
     except ValidationError as e:
-        raise PlanError("where", "invalid_expression", str(e.errors()[0]["msg"]) if e.errors() else "invalid expression")
+        raise PlanError("where", "invalid_expression", str(e.errors()[0]["msg"]) if e.errors() else "invalid expression") from e

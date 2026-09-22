@@ -10,7 +10,6 @@ import hashlib
 import io
 import json
 import re
-import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -231,7 +230,7 @@ def import_file(source_path: Path, dest_parquet: Path, options: ImportOptions | 
                 names = sanitize_column_names(names)
             con.execute(f"CREATE TEMP TABLE raw AS SELECT * FROM {_read_csv_sql(source_path, delimiter, header, options, rejects=True, columns=names)}")
         except duckdb.Error as e:
-            raise ImportError_("parse_failed", f"Could not parse file: {e}")
+            raise ImportError_("parse_failed", f"Could not parse file: {e}") from e
         rejects_rows: list[dict[str, Any]] = []
         try:
             rejects_rows = [
@@ -342,11 +341,6 @@ def preview_rows(path: Path, options: ImportOptions | None = None, limit: int = 
         cols = [d[0] for d in rel.description]
         rows = rel.fetchall()
     return {"delimiter": delimiter, "header": header, "columns": sanitize_column_names(cols), "rows": [list(r) for r in rows], "provisional": True}
-
-
-def copy_source(src: Path, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, dest)
 
 
 def report_to_dict(report: ImportReport) -> dict[str, Any]:

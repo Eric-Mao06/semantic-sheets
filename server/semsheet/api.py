@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -14,13 +15,10 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .db import get_db
+from .mcp_server import build_mcp_app, mcp
 from .models import JobLimits
 from .samples import SAMPLES, sample_path
 from .services import ServiceError, Services, Workspace
-
-from contextlib import asynccontextmanager  # noqa: E402
-
-from .mcp_server import build_mcp_app, mcp  # noqa: E402
 
 _mcp_app = build_mcp_app()
 
@@ -54,7 +52,7 @@ def workspace(request: Request, authorization: str | None = Header(default=None)
     try:
         return services().workspace_from_token(_token(request, authorization))
     except ServiceError as e:
-        raise HTTPException(e.status, e.to_dict())
+        raise HTTPException(e.status, e.to_dict()) from e
 
 
 @app.exception_handler(ServiceError)

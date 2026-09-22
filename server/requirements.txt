@@ -12,4 +12,5 @@ pytest==9.1.1
 pytest-asyncio==1.4.0
 python-multipart==0.0.32
 rapidfuzz==3.14.6
+ruff==0.16.8
 uvicorn==0.53.0

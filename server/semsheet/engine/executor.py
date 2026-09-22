@@ -13,7 +13,6 @@ import asyncio
 import json
 import logging
 import os
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,7 +22,7 @@ import pyarrow.parquet as pq
 from rapidfuzz import fuzz, process
 
 from ..config import settings
-from ..db import Database, dumps, loads, new_id, now
+from ..db import Database, dumps, loads, now
 from ..models import JobLimits, Plan, Question, SemanticAnnotateStep, SemanticMatchStep
 from ..storage import build_context, derived_dir
 from . import calibrate, jev
@@ -254,7 +253,7 @@ class JobRunner:
                             sp: StageProgress, usage: Usage, stages: dict[str, StageProgress], manifest: dict[str, Any]) -> None:
         cols = [ROW_ID] + step.columns
         with connect() as con:
-            tbl = con.execute(f"SELECT {', '.join(q(c) for c in cols)} FROM ({input_sql}) t ORDER BY {q(ROW_ID)} LIMIT {int(limits.max_source_rows)}").fetch_arrow_table()
+            tbl = con.execute(f"SELECT {', '.join(q(c) for c in cols)} FROM ({input_sql}) t ORDER BY {q(ROW_ID)} LIMIT {int(limits.max_source_rows)}").to_arrow_table()
             total_input = int(con.execute(f"SELECT count(*) FROM ({input_sql}) t").fetchone()[0])
         rows = tbl.to_pylist()
         if total_input > limits.max_source_rows:
@@ -274,7 +273,7 @@ class JobRunner:
             self._check_stop(job_id, deadline, limits, usage)
             chunk_rows = rows[s:e]
             table, stats = await self._annotate_chunk(job_id, ws_id, plan.model, step, chunk_rows, rows_per_request, limits, usage, deadline)
-            self._commit_chunk(job_id, rv_id, step.id, idx, out_dir, table, stats, sp, usage, stages, manifest, chunk_rows[0][ROW_ID], chunk_rows[-1][ROW_ID])
+            self._commit_chunk(job_id, rv_id, step.id, idx, out_dir, table, _annotate_row_counts(table), stats, sp, usage, stages, manifest, chunk_rows[0][ROW_ID], chunk_rows[-1][ROW_ID])
 
     async def _annotate_chunk(self, job_id: str, ws_id: str, model: str, step: SemanticAnnotateStep, rows: list[dict[str, Any]], rows_per_request: int,
                               limits: JobLimits, usage: Usage, deadline: float) -> tuple[pa.Table, dict[str, int]]:
@@ -364,20 +363,17 @@ class JobRunner:
                     arrays[f"{qn.name}.near"].append(False)
                 arrays[f"{qn.name}.status"].append(interp["status"])
                 arrays[f"{qn.name}.raw"].append(None if rraw is None else json.dumps(rraw, separators=(",", ":")))
-        fields = [pa.field(ROW_ID, pa.int64())]
-        columns = [pa.array(arrays[ROW_ID], pa.int64())]
+        typed: list[tuple[str, pa.DataType]] = [(ROW_ID, pa.int64())]
         for qn in qs:
-            vt = pa.bool_() if qn.kind == "boolean" else pa.string()
-            fields.append(pa.field(f"{qn.name}.value", vt)); columns.append(pa.array(arrays[f"{qn.name}.value"], vt))
-            fields.append(pa.field(f"{qn.name}.score", pa.float64())); columns.append(pa.array(arrays[f"{qn.name}.score"], pa.float64()))
+            typed.append((f"{qn.name}.value", pa.bool_() if qn.kind == "boolean" else pa.string()))
+            typed.append((f"{qn.name}.score", pa.float64()))
             if qn.kind in ("category", "score"):
-                fields.append(pa.field(f"{qn.name}.confidence", pa.float64())); columns.append(pa.array(arrays[f"{qn.name}.confidence"], pa.float64()))
+                typed.append((f"{qn.name}.confidence", pa.float64()))
             else:
-                fields.append(pa.field(f"{qn.name}.near", pa.bool_())); columns.append(pa.array(arrays[f"{qn.name}.near"], pa.bool_()))
-            fields.append(pa.field(f"{qn.name}.status", pa.string())); columns.append(pa.array(arrays[f"{qn.name}.status"], pa.string()))
-            fields.append(pa.field(f"{qn.name}.raw", pa.string())); columns.append(pa.array(arrays[f"{qn.name}.raw"], pa.string()))
-        table = pa.Table.from_arrays(columns, schema=pa.schema(fields))
-        # Row-level status roll-up for progress: a row succeeded when every question has ok/uncertain
+                typed.append((f"{qn.name}.near", pa.bool_()))
+            typed.append((f"{qn.name}.status", pa.string()))
+            typed.append((f"{qn.name}.raw", pa.string()))
+        table = pa.Table.from_arrays([pa.array(arrays[name], t) for name, t in typed], schema=pa.schema([pa.field(name, t) for name, t in typed]))
         return table, stats
 
     async def _dispatch(self, job_id: str, ws_id: str, model: str, packets: list[jev.Packet], limits: JobLimits, usage: Usage, deadline: float, stats: dict[str, int]) -> list[Any]:
@@ -417,20 +413,21 @@ class JobRunner:
             await asyncio.gather(*pending)
         return results
 
-    def _commit_chunk(self, job_id: str, rv_id: str, stage_id: str, idx: int, out_dir: Path, table: pa.Table, stats: dict[str, int], sp: StageProgress, usage: Usage,
-                      stages: dict[str, StageProgress], manifest: dict[str, Any], first_row: int, last_row: int) -> None:
+    def _commit_chunk(self, job_id: str, rv_id: str, stage_id: str, idx: int, out_dir: Path, table: pa.Table, counts: dict[str, int], stats: dict[str, int],
+                      sp: StageProgress, usage: Usage, stages: dict[str, StageProgress], manifest: dict[str, Any], first_row: int, last_row: int) -> None:
+        """Write one chunk atomically (tmp file + rename), fold its row counts into the stage progress, record it in
+        job_chunks and bump the result revision. Raises the pending StopJob, if any, once the chunk is durable."""
         tmp = out_dir / f".chunk_{idx:05d}.parquet.tmp"
         final = out_dir / f"chunk_{idx:05d}.parquet"
         pq.write_table(table, tmp, compression="zstd")
         os.replace(tmp, final)
         n = table.num_rows
-        counts = _annotate_row_counts(table)
-        sp.rows_succeeded += counts["succeeded"]
-        sp.rows_uncertain += counts["uncertain"]
-        sp.rows_flagged += counts["flagged"]
-        sp.rows_missing += counts["missing"]
-        sp.rows_failed += counts["failed"]
-        sp.rows_skipped += counts["skipped"]
+        sp.rows_succeeded += counts.get("succeeded", 0)
+        sp.rows_uncertain += counts.get("uncertain", 0)
+        sp.rows_flagged += counts.get("flagged", 0)
+        sp.rows_missing += counts.get("missing", 0)
+        sp.rows_failed += counts.get("failed", 0)
+        sp.rows_skipped += counts.get("skipped", 0)
         sp.rows_pending = max(0, sp.rows_pending - n)
         sp.cache_hits += stats.get("cache_hits", 0)
         sp.inference_attempts += stats.get("attempts", 0)
@@ -444,9 +441,8 @@ class JobRunner:
         rev = self._save(job_id, rv_id, stages, usage, manifest, bump=True)
         self.db.append_event(job_id, "chunk_committed", {"stage": stage_id, "chunk_index": idx, "rows": n, "row_range": [int(first_row), int(last_row)], "revision": rev,
                                                          "progress": self._progress(stages), "usage": usage.to_dict()})
-        stop = getattr(self, "_stop_after_commit", None)
-        if stop is not None:
-            self._stop_after_commit = None  # type: ignore[attr-defined]
+        if self._stop_after_commit is not None:
+            stop, self._stop_after_commit = self._stop_after_commit, None
             raise stop
 
     # ------------------------------------------------------------------------------------------
@@ -547,8 +543,8 @@ class JobRunner:
         rcols = [ROW_ID] + list(dict.fromkeys(step.right_columns + ([step.blocking.right] if step.blocking else [])))
         lcols = [ROW_ID] + list(dict.fromkeys(step.left_columns + ([step.blocking.left] if step.blocking else [])))
         with connect() as con:
-            right = con.execute(f"SELECT {', '.join(q(c) for c in rcols)} FROM read_parquet({lit(str(rpath))}) ORDER BY {q(ROW_ID)}").fetch_arrow_table().to_pylist()
-            left = con.execute(f"SELECT {', '.join(q(c) for c in lcols)} FROM ({input_sql}) t ORDER BY {q(ROW_ID)} LIMIT {int(limits.max_source_rows)}").fetch_arrow_table().to_pylist()
+            right = con.execute(f"SELECT {', '.join(q(c) for c in rcols)} FROM read_parquet({lit(str(rpath))}) ORDER BY {q(ROW_ID)}").to_arrow_table().to_pylist()
+            left = con.execute(f"SELECT {', '.join(q(c) for c in lcols)} FROM ({input_sql}) t ORDER BY {q(ROW_ID)} LIMIT {int(limits.max_source_rows)}").to_arrow_table().to_pylist()
         if len(right) > settings.match_max_right_rows:
             raise StopJob("right_table_too_large", "failed")
         with connect() as con:
@@ -580,27 +576,27 @@ class JobRunner:
             chunk = left[s:e]
             # candidate generation: exact blocking then lexical retrieval
             cand: dict[int, list[tuple[int, float]]] = {}
-            for l in chunk:
-                query = " | ".join(str(l.get(c) or "") for c in step.left_columns)
-                pool_idx = blocks.get(jev.normalize_cell(l.get(step.blocking.left)), []) if step.blocking else None
+            for left_row in chunk:
+                query = " | ".join(str(left_row.get(c) or "") for c in step.left_columns)
+                pool_idx = blocks.get(jev.normalize_cell(left_row.get(step.blocking.left)), []) if step.blocking else None
                 if pool_idx is not None and not pool_idx:
-                    cand[int(l[ROW_ID])] = []
+                    cand[int(left_row[ROW_ID])] = []
                     continue
                 if pool_idx is None:
                     found = process.extract(query, right_text, scorer=fuzz.token_set_ratio, limit=step.candidates_per_row)
-                    cand[int(l[ROW_ID])] = [(int(right[i][ROW_ID]), float(score) / 100.0) for _, score, i in found]
+                    cand[int(left_row[ROW_ID])] = [(int(right[i][ROW_ID]), float(score) / 100.0) for _, score, i in found]
                 else:
                     sub = {i: right_text[i] for i in pool_idx}
                     found = process.extract(query, sub, scorer=fuzz.token_set_ratio, limit=step.candidates_per_row)
-                    cand[int(l[ROW_ID])] = [(int(right[i][ROW_ID]), float(score) / 100.0) for _, score, i in found]
+                    cand[int(left_row[ROW_ID])] = [(int(right[i][ROW_ID]), float(score) / 100.0) for _, score, i in found]
             right_by_id = {int(r[ROW_ID]): r for r in right}
             items: list[jev.PacketItem] = []
             keys: dict[tuple[int, int], str] = {}
             payload_of: dict[tuple[int, int], dict[str, Any]] = {}
-            for l in chunk:
-                lid = int(l[ROW_ID])
+            for left_row in chunk:
+                lid = int(left_row[ROW_ID])
                 for rid, _ in cand[lid]:
-                    payload = {"left_record": {c: (jev.normalize_cell(l.get(c)) or "") for c in step.left_columns},
+                    payload = {"left_record": {c: (jev.normalize_cell(left_row.get(c)) or "") for c in step.left_columns},
                                "right_record": {c: (jev.normalize_cell(right_by_id[rid].get(c)) or "") for c in step.right_columns}}
                     payload_of[(lid, rid)] = payload
                     keys[(lid, rid)] = jev.cache_key(ws_id, plan.model, pair_question, payload)
@@ -643,8 +639,8 @@ class JobRunner:
             self._cache_store(ws_id, plan.model, new_cache)
             # decide per left row
             out = {ROW_ID: [], f"{step.name}.right_row_id": [], f"{step.name}.score": [], f"{step.name}.status": [], f"{step.name}.candidates": []}
-            for l in chunk:
-                lid = int(l[ROW_ID])
+            for left_row in chunk:
+                lid = int(left_row[ROW_ID])
                 if lid in not_dispatched_left:
                     continue  # stays pending
                 cands = []
@@ -658,10 +654,10 @@ class JobRunner:
                 scored = [c for c in cands if c["p_same"] is not None]
                 out[ROW_ID].append(lid)
                 out[f"{step.name}.candidates"].append(json.dumps(cands, separators=(",", ":")))
-                if not cands:
-                    out[f"{step.name}.right_row_id"].append(None); out[f"{step.name}.score"].append(None); out[f"{step.name}.status"].append("no_candidates")
-                elif not scored:
-                    out[f"{step.name}.right_row_id"].append(None); out[f"{step.name}.score"].append(None); out[f"{step.name}.status"].append(jev.FAILED)
+                if not cands or not scored:
+                    out[f"{step.name}.right_row_id"].append(None)
+                    out[f"{step.name}.score"].append(None)
+                    out[f"{step.name}.status"].append("no_candidates" if not cands else jev.FAILED)
                 else:
                     best = max(scored, key=lambda c: c["p_same"])
                     p = best["p_same"]
@@ -684,38 +680,7 @@ class JobRunner:
                 f"{step.name}.status": pa.array(out[f"{step.name}.status"], pa.string()),
                 f"{step.name}.candidates": pa.array(out[f"{step.name}.candidates"], pa.string()),
             })
-            self._commit_match_chunk(job_id, rv_id, step, idx, out_dir, table, stats, sp, usage, stages, manifest, chunk[0][ROW_ID], chunk[-1][ROW_ID])
-
-    def _commit_match_chunk(self, job_id: str, rv_id: str, step: SemanticMatchStep, idx: int, out_dir: Path, table: pa.Table, stats: dict[str, int], sp: StageProgress,
-                            usage: Usage, stages: dict[str, StageProgress], manifest: dict[str, Any], first_row: int, last_row: int) -> None:
-        tmp = out_dir / f".chunk_{idx:05d}.parquet.tmp"
-        final = out_dir / f"chunk_{idx:05d}.parquet"
-        pq.write_table(table, tmp, compression="zstd")
-        os.replace(tmp, final)
-        n = table.num_rows
-        counts = _match_row_counts(table, step.name)
-        sp.rows_failed += counts["failed"]
-        sp.rows_uncertain += counts["uncertain"]
-        sp.rows_missing += counts["missing"]
-        sp.rows_succeeded += counts["succeeded"]
-        sp.rows_flagged += counts["flagged"]
-        sp.rows_pending = max(0, sp.rows_pending - n)
-        sp.cache_hits += stats.get("cache_hits", 0)
-        sp.inference_attempts += stats.get("attempts", 0)
-        sp.provider_requests += stats.get("requests", 0)
-        sp.pairs += stats.get("pairs", 0)
-        sp.chunks_committed += 1
-        usage.cache_hits += stats.get("cache_hits", 0)
-        with self.db.connect() as conn:
-            conn.execute("INSERT OR REPLACE INTO job_chunks(job_id,stage_id,chunk_index,state,row_count,usage_json,path,error,committed_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                         (job_id, step.id, idx, "committed", n, dumps(stats), str(final), None, now()))
-        rev = self._save(job_id, rv_id, stages, usage, manifest, bump=True)
-        self.db.append_event(job_id, "chunk_committed", {"stage": step.id, "chunk_index": idx, "rows": n, "row_range": [int(first_row), int(last_row)], "revision": rev,
-                                                         "progress": self._progress(stages), "usage": usage.to_dict()})
-        stop = getattr(self, "_stop_after_commit", None)
-        if stop is not None:
-            self._stop_after_commit = None  # type: ignore[attr-defined]
-            raise stop
+            self._commit_chunk(job_id, rv_id, step.id, idx, out_dir, table, _match_row_counts(table, step.name), stats, sp, usage, stages, manifest, chunk[0][ROW_ID], chunk[-1][ROW_ID])
 
     # ------------------------------------------------------------------------------------------
     # Prediction cache

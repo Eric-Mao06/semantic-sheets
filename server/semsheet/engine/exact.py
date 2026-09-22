@@ -13,8 +13,22 @@ from typing import Any
 import duckdb
 
 from ..models import (
-    AggregateStep, Call, ColumnRef, ComputeStep, DistinctStep, Expr, FilterStep, JoinStep, LimitStep, Literal_, Plan,
-    ProjectStep, SemanticAnnotateStep, SemanticMatchStep, SortStep, SourceRef,
+    AggregateStep,
+    Call,
+    ColumnRef,
+    ComputeStep,
+    DistinctStep,
+    Expr,
+    FilterStep,
+    JoinStep,
+    LimitStep,
+    Literal_,
+    Plan,
+    ProjectStep,
+    SemanticAnnotateStep,
+    SemanticMatchStep,
+    SortStep,
+    SourceRef,
 )
 
 ROW_ID = "_row_id"
@@ -99,9 +113,8 @@ class Compiled:
         return "WITH " + ",\n".join(f"{q(n)} AS ({s})" for n, s in self.ctes) + f"\nSELECT * FROM {q(step)}"
 
     def provisional(self, step: str) -> bool:
-        rel = self.relations[step]
-        return bool(rel.pending_statuses)
-
+        """True while a semantic stage feeding this step has rows without a committed answer."""
+        return bool(self.relations[step].pending_statuses)
 
 # ------------------------------------------------------------------------------------------------
 # Expressions

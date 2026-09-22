@@ -214,26 +214,26 @@ def wdc() -> None:
     offer plus hard non-matches, so candidate recall and pair precision can both be measured."""
     with zipfile.ZipFile(RAW / "wdc_80pair.zip") as zf:
         raw = zf.read("wdcproducts80cc20rnd000un_gs.json.gz")
-    pairs = [json.loads(l) for l in gzip.decompress(raw).decode("utf-8").splitlines() if l.strip()]
+    pairs = [json.loads(line) for line in gzip.decompress(raw).decode("utf-8").splitlines() if line.strip()]
     right: dict[int, dict] = {}
     left: dict[int, dict] = {}
     truth: dict[int, int] = {}
     for p in pairs:
-        r = right.setdefault(p["id_right"], {"catalog_id": p["id_right"], "brand": p.get("brand_right"), "title": p["title_right"], "description": (p.get("description_right") or "")[:300], "price": p.get("price_right"), "currency": p.get("priceCurrency_right"), "cluster_id": p["cluster_id_right"]})
-        l = left.setdefault(p["id_left"], {"offer_id": p["id_left"], "brand": p.get("brand_left"), "title": p["title_left"], "description": (p.get("description_left") or "")[:300], "price": p.get("price_left"), "currency": p.get("priceCurrency_left"), "cluster_id": p["cluster_id_left"]})
+        right.setdefault(p["id_right"], {"catalog_id": p["id_right"], "brand": p.get("brand_right"), "title": p["title_right"], "description": (p.get("description_right") or "")[:300], "price": p.get("price_right"), "currency": p.get("priceCurrency_right"), "cluster_id": p["cluster_id_right"]})
+        left.setdefault(p["id_left"], {"offer_id": p["id_left"], "brand": p.get("brand_left"), "title": p["title_left"], "description": (p.get("description_left") or "")[:300], "price": p.get("price_left"), "currency": p.get("priceCurrency_left"), "cluster_id": p["cluster_id_left"]})
         if p["label"] == 1:
             truth[p["id_left"]] = p["id_right"]
     # Keep offers that have a true match in the catalog and bound sizes
-    left_rows = [l for l in left.values() if l["offer_id"] in truth]
+    left_rows = [offer for offer in left.values() if offer["offer_id"] in truth]
     random.shuffle(left_rows)
     left_rows = left_rows[:400]
-    for l in left_rows:
-        l["true_catalog_id"] = truth[l["offer_id"]]
+    for offer in left_rows:
+        offer["true_catalog_id"] = truth[offer["offer_id"]]
     # WDC uses one id space for both sides of a pair, so an offer's own record can also appear as a catalog entry;
     # drop those, otherwise matching becomes a trivial lookup of the identical record.
-    offer_ids = {l["offer_id"] for l in left_rows}
+    offer_ids = {offer["offer_id"] for offer in left_rows}
     right_rows = [r for r in list(right.values())[:2000] if r["catalog_id"] not in offer_ids]
-    needed = {l["true_catalog_id"] for l in left_rows}
+    needed = {offer["true_catalog_id"] for offer in left_rows}
     have = {r["catalog_id"] for r in right_rows}
     right_rows += [right[i] for i in needed - have]
     for fname, rows in (("wdc_offers_left.csv", left_rows), ("wdc_catalog_right.csv", right_rows)):

@@ -43,13 +43,6 @@ def upload_path(upload_id: str) -> Path:
     return settings.data_dir / "uploads" / upload_id
 
 
-def load_version(db: Database, version_id: str) -> dict[str, Any] | None:
-    row = db.one("SELECT * FROM dataset_versions WHERE id=?", (version_id,))
-    if row is None:
-        return None
-    return dict(row)
-
-
 def resolve_source(db: Database, workspace_id: str, ref: SourceRef) -> tuple[dict[str, Any], dict[str, Any]]:
     """Resolve a dataset reference to (dataset row, version row), enforcing workspace ownership."""
     ds = db.one("SELECT * FROM datasets WHERE id=? AND workspace_id=? AND deleted_at IS NULL", (ref.dataset_id, workspace_id))

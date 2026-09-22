@@ -6,10 +6,8 @@ import asyncio
 import json
 import uuid
 
-import pytest
-
 from semsheet.engine.executor import JobRunner
-from tests.conftest import H, FakeJev, run_job
+from tests.conftest import FakeJev, H, run_job
 
 
 def plan_for(ds, extra_steps=None, output=None):
@@ -241,9 +239,9 @@ def test_semantic_match_join(client, database, data_dir):
         up = client.post("/api/uploads", json={"filename": p.name}, headers=H).json()
         client.put(f"/api/uploads/{up['upload_id']}/content", content=p.read_bytes(), headers=H)
         ids.append(client.post("/api/datasets/import", json={"upload_id": up["upload_id"], "name": name}, headers=H).json()["dataset"])
-    l, r = ids
-    plan = {"plan_version": "1", "source": {"dataset_id": l["dataset_id"], "version_id": l["version_id"]}, "model": "jev-1.13.0", "output": "m", "steps": [
-        {"id": "m", "op": "semantic_match", "input": "source", "right": {"dataset_id": r["dataset_id"]}, "left_columns": ["offer"], "right_columns": ["title"],
+    left_ds, right_ds = ids
+    plan = {"plan_version": "1", "source": {"dataset_id": left_ds["dataset_id"], "version_id": left_ds["version_id"]}, "model": "jev-1.13.0", "output": "m", "steps": [
+        {"id": "m", "op": "semantic_match", "input": "source", "right": {"dataset_id": right_ds["dataset_id"]}, "left_columns": ["offer"], "right_columns": ["title"],
          "instruction": "Are these the same exact product?", "candidates_per_row": 3, "right_output_columns": ["sku"]}]}
     v = client.post("/api/plans/validate", json={"plan": plan}, headers=H)
     assert v.status_code == 200, v.text

@@ -8,14 +8,25 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pandas as pd
-
-from common import (BENCH_DATA_DIR, SAMPLES_DIR, adjusted_rand_index, cohens_kappa, estimate_tokens, head,
-                    normalized_mutual_information, prf, set_agreement, spearman, top_k_overlap)
+from common import (
+    BENCH_DATA_DIR,
+    SAMPLES_DIR,
+    adjusted_rand_index,
+    cohens_kappa,
+    estimate_tokens,
+    head,
+    normalized_mutual_information,
+    prf,
+    set_agreement,
+    spearman,
+    top_k_overlap,
+)
 
 SEED = 7
 

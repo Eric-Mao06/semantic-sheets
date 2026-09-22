@@ -1,0 +1,16 @@
+
+# Lint configuration for server/, benchmarks/ and scripts/. Run `ruff check .` from the repo root.
+line-length = 160
+target-version = "py312"
+extend-exclude = ["web", "data", ".venv"]
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+  "E501", # long lines: the codebase favours dense one-liners for SQL and dict literals
+  "B008", # function calls in argument defaults: FastAPI's Depends() pattern
+  "B905", # zip() without strict=: the paired lists are built together and always match
+]
+
+[lint.isort]
+known-first-party = ["semsheet"]

@@ -67,7 +67,6 @@ def main() -> int:
     os.environ.setdefault("SEMSHEET_WORKSPACE_BUDGET_USD", "50")
 
     import pandas as pd
-
     from oneshot import OneShotResult, run_oneshot
     from pipeline import PipelineResult, run_pipeline
     from scenarios import SCENARIOS, Prepared
