@@ -112,7 +112,9 @@ def _keeps_source_rows(pr: Any, step_id: str) -> bool:
 def _selected_rows(pr: Any, table: str) -> tuple[list[int], str]:
     """Rows kept by the plan: the output step when it still carries source row identity, else the last filter
     step that does."""
-    out_id = pr.plan["output"]
+    out_id = pr.plan.get("output")
+    if out_id is None:  # operators arm not run
+        return [], "(none)"
     out = _frame(pr, out_id)
     if out is not None and _keeps_source_rows(pr, out_id):
         return _row_ids(pr, out, table), out_id
@@ -166,10 +168,10 @@ def _labels(pr: Any, table: str, kind: str) -> tuple[dict[int, Any], str, str]:
 
 def _score_ranking(pr: Any, table: str) -> tuple[list[int], str]:
     """Rows of the output step ordered by the first score question, highest first (or output order)."""
-    out_id = pr.plan["output"]
-    df = _frame(pr, out_id)
+    out_id = pr.plan.get("output")
+    df = _frame(pr, out_id) if out_id is not None else None
     if df is None:
-        return [], out_id
+        return [], out_id or "(none)"
     score_cols = [c for c in df.columns if c.endswith(".score") and pd.api.types.is_numeric_dtype(pd.to_numeric(df[c], errors="coerce"))]
     for s in _steps(pr, "semantic_annotate"):
         for q in s.get("questions", []):

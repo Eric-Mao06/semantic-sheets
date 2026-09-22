@@ -18,10 +18,16 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 ASTRA_MODEL = "gpt-6-astra"
 ASTRA_REASONING = "high"
 ASTRA_PRICES = {
-    "short": {"input": 10.00, "cached_input": 1.00, "output": 50.00},
-    "long": {"input": 20.00, "cached_input": 2.00, "output": 75.00},
+    "short": {"input": 10.00, "cached_input": 1.00, "cache_write": 12.50, "output": 50.00},
+    "long": {"input": 20.00, "cached_input": 2.00, "cache_write": 25.00, "output": 75.00},
 }
 LONG_CONTEXT_INPUT_TOKENS = 272_000
+
+# Hosted code interpreter (the one-shot `tools` variant): a 1 GB container is $0.03 per 20-minute session, billed by
+# the minute with a 5-minute minimum (platform.openai.com/docs/pricing, "Containers", read 2026-09-22).
+CONTAINER_SESSION_USD = 0.03
+CONTAINER_SESSION_SECONDS = 20 * 60
+CONTAINER_MINIMUM_SECONDS = 5 * 60
 
 # Planner (orchestrator) candidates, USD per 1M tokens. OpenRouter list prices read 2026-09-21.
 PLANNER_PRICES = {
@@ -49,20 +55,28 @@ def planner_cost(model: str, usage: dict[str, Any]) -> dict[str, Any]:
     return {"usd": round(cost, 6), "source": "list_price", "input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"), "reasoning_tokens": usage.get("reasoning_tokens"), "prices_per_mtok": p}
 
 
-def astra_cost(usage: dict[str, Any]) -> dict[str, Any]:
-    """Cost of one Responses API call from its usage block."""
+def astra_cost(usage: dict[str, Any], turns: int = 1) -> dict[str, Any]:
+    """Cost of one Responses API call from its usage block. `turns` is the number of model turns inside the response
+    (1 + tool calls): usage sums input tokens over all turns, but the long-context tier applies per turn, so the tier
+    is decided on the average per-turn context."""
     input_tokens = int(usage.get("input_tokens") or 0)
     cached = int(usage.get("cached_input_tokens") or 0)
+    cache_write = int(usage.get("cache_write_tokens") or 0)
     output_tokens = int(usage.get("output_tokens") or 0)
-    tier = "long" if input_tokens > LONG_CONTEXT_INPUT_TOKENS else "short"
+    per_turn = input_tokens / max(1, int(turns or 1))
+    tier = "long" if per_turn > LONG_CONTEXT_INPUT_TOKENS else "short"
     p = ASTRA_PRICES[tier]
-    uncached = max(0, input_tokens - cached)
-    cost = uncached / 1e6 * p["input"] + cached / 1e6 * p["cached_input"] + output_tokens / 1e6 * p["output"]
+    # cache-write tokens are a subset of the uncached input, priced at the cache-write rate instead of the input rate
+    uncached = max(0, input_tokens - cached - cache_write)
+    cost = (uncached / 1e6 * p["input"] + cached / 1e6 * p["cached_input"] + cache_write / 1e6 * p["cache_write"]
+            + output_tokens / 1e6 * p["output"])
     return {
         "usd": round(cost, 6),
         "tier": tier,
+        "turns": int(turns or 1),
         "input_tokens": input_tokens,
         "cached_input_tokens": cached,
+        "cache_write_tokens": cache_write,
         "output_tokens": output_tokens,
         "reasoning_tokens": usage.get("reasoning_tokens"),
         "prices_per_mtok": p,
