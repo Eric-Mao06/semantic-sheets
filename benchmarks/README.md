@@ -110,6 +110,55 @@ With the DeepSeek planner and dual-route Jev the whole operator pipeline finishe
   reviewed 10; GLM's `recurring_charge` accepted 10 and reviewed 74, then 170 and 106). Question wording and thresholds
   are the biggest quality lever in the operator arm, and they are editable before anything runs.
 
+### One-shot with the code interpreter
+
+Run `oneshot-tools` (2026-09-22) repeats the one-shot arm with `gpt-6-astra` (reasoning `high`) and the hosted code
+interpreter enabled: the prompt, the inline CSV and the strict JSON schema are unchanged, the CSV files are also
+mounted in the container, and the instructions add that code is for the exact work while the semantic judgements
+are still the model's to make by reading the rows. It is one Responses API request; the tool loop runs server-side and
+the usage the API reports covers every model turn. Cost adds the container ($0.03 per session) and prices the
+cache-write tokens the API now reports at the cache-write rate. Full report, including the code the model ran in each
+call: [`results/oneshot-tools/RESULTS.md`](results/oneshot-tools/RESULTS.md).
+
+| Scenario | One-shot, no tools | One-shot + code interpreter | Cost · latency · tool calls (no tools → tools) |
+|---|---|---|---|
+| Support | 9 rows, P 100% / R 100% | 9 rows, P 100% / R 100% (same set) | $0.51 · 27 s → $0.64 · 18 s · 1 call |
+| Banking (lenient gold) | pending F1 80%, failed F1 75% | pending F1 79%, failed F1 76% | $0.96 · 221 s → $1.15 · 224 s · 5 calls |
+| Complaints | 8 ranked, all with a keyword | the same 8 ranked | $2.13 · 43 s → $2.75 · 55 s · 3 calls |
+| Airbnb | 17 reviews / 17 properties, prices 16/17 | the same 17 / 17, prices 16/17 | $1.35 · 102 s → $1.61 · 80 s · 4 calls |
+| Retail | 3 categories, 53 / 83 cells exact, worst off by $46,503 | **8 categories, 264 / 264 cells exact to the cent** | **$5.07 · 1,538 s → $1.86 · 326 s · 7 calls** |
+| Product matching | 357 pairs, P 97.5% / R 87.0% | 361 pairs, P 96.7% / R 87.2% | $1.53 · 347 s → $2.36 · 436 s · 15 calls |
+| **Total** | **$11.55** | | **$10.37** (0.9×) |
+
+- **The arithmetic failure disappears; nothing else moves.** Five of six scenarios came back with the same or a
+  statistically indistinguishable answer (support and complaints: identical row sets; Airbnb: identical 17 reviews;
+  banking: F1 within one point either way; matching: +4 pairs, one more right and three more wrong). The retail
+  scenario is the exception: without tools the model collapsed the taxonomy to 3 categories, spent 80K reasoning
+  tokens doing 83 sums in its head, got 30 of them wrong and took 26 minutes; with the interpreter it assigned 8
+  categories to all 300 products in one dictionary, let Python sum 4,758 rows with `Decimal`, checked the per-product
+  totals against the products table, and returned 264 / 264 cells exact in 5½ minutes at 37% of the cost.
+  That single scenario is why the total is lower; every other scenario cost 19–54% more with tools.
+- **Semantic recall did not change, because the model did not delegate judgement to code.** The traces show the model
+  using the interpreter the way the instructions asked: as a scratchpad and a calculator. In banking it printed row
+  ranges, decided by reading them, and recorded the ids in sets; in matching it walked the 400 offers in chunks of 50,
+  wrote the pairs it chose into a dict, ran two regex lookups (`Privacy|3M -`, `Jabra`) to retrieve candidates it
+  wanted to re-check, and finished with an assertion that no offer was matched twice. The one structural trick was on
+  the 5,000 CFPB complaints: `groupby(['Issue', 'Sub-issue']).size()` reduced the table to its distinct issue pairs, the
+  model judged the pairs, and code expanded the two matching pairs back to the same 8 rows the no-tools run had picked.
+- **Where the operators still win.** With `gpt-6-astra` reading every row, both one-shot variants beat the operators on
+  semantic recall (matching R 87% vs 34–55%, support 9 of 9 gold rows vs 2–8); the operators remain exact on arithmetic by
+  construction and 14–70× cheaper ($0.15–0.72 for all six vs $10.37), and they are the only arm that can run on the
+  100K-row walkthrough file. Giving the frontier model tools closes its arithmetic gap, not the cost or scale gap.
+- **Airbnb prices 16/17 is a data gap, not an error.** In both variants the one "wrong" price is a listing whose
+  `nightly_price` is empty in the source; the model returned `null`, which the checker counts as not-correct.
+- **Token accounting.** For each scenario the API reported the prompt once as cache-write tokens (priced at $12.50 / M
+  against $10.00 / M for plain input) and only a few thousand additional input tokens across the later turns; it did not
+  report the whole context again per turn. Reasoning tokens fell where the model handed work to code (retail 80K → 3.7K,
+  Airbnb 4.4K → 1.9K) and were unchanged where it did not (matching 12.3K both ways). The no-tools baseline was recorded
+  before the harness captured cache-write tokens, so its input cost is priced entirely at the input rate; if that request
+  was also written to the cache, its true cost is up to 25% higher on the input side and the tools variant's relative
+  cost correspondingly better.
+
 ### Why flagged rows were not in the final result (the review pile)
 
 *This describes the engine as it was for the first four runs; the calibrated-cuts change in the next section is the fix.*
@@ -233,7 +282,9 @@ Per scenario, DeepSeek plans, before → after (the one-shot column is unchanged
 - Ground truth is a proxy on four of six scenarios (see the notes in each result), and the CFPB export has no
   narratives, which makes that scenario thin for both arms.
 - The one-shot arm is a capability probe with a strict JSON schema and an instruction to read every row; it is not how
-  anyone would ship the task, and the same model plays the planner in the other arm.
+  anyone would ship the task, and the same model plays the planner in the other arm. The code-interpreter variant is
+  one run per scenario, like the rest; the container price is taken as one $0.03 session per response (every response
+  finished inside the 20-minute session window).
 
 ## Running it
 

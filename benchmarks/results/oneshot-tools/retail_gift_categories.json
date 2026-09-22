@@ -1,0 +1,213 @@
+{
+  "run": "oneshot-tools",
+  "arms": [
+    "oneshot"
+  ],
+  "oneshot_variant": "tools",
+  "planner_config": null,
+  "scenario": "retail_gift_categories",
+  "title": "Retail: gift categories, revenue by category and country",
+  "prompt": "Classify products into gift categories, then calculate revenue by category and country using the retail revenue by product and country table.",
+  "inputs": [
+    {
+      "name": "retail_products",
+      "rows": 300,
+      "columns": [
+        "row_id",
+        "stock_code",
+        "description",
+        "revenue",
+        "quantity",
+        "transactions",
+        "countries"
+      ],
+      "approx_tokens": 4488
+    },
+    {
+      "name": "retail_revenue_by_product_and_country",
+      "rows": 4758,
+      "columns": [
+        "stock_code",
+        "country",
+        "revenue",
+        "quantity",
+        "transactions"
+      ],
+      "approx_tokens": 31412
+    }
+  ],
+  "notes": [
+    "Bounded to the 300 highest-revenue products and their 4758 product x country revenue rows. Both approaches define their own gift taxonomy, so labels are compared with clustering agreement (ARI / NMI) rather than exact match; the revenue table is recomputed exactly from each approach's own labels to check the arithmetic."
+  ],
+  "pipeline": {
+    "plan": {},
+    "planner": {},
+    "estimate": {},
+    "calibration": {},
+    "job": {
+      "job_id": null,
+      "state": null,
+      "terminal_reason": null,
+      "usage": null,
+      "progress": null,
+      "error_summary": null,
+      "errors": null
+    },
+    "step_rows": {},
+    "datasets": {},
+    "timings_seconds": {},
+    "cost": {},
+    "error": "pipeline arm not run"
+  },
+  "oneshot": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "variant": "tools",
+    "status": "completed",
+    "usage": {
+      "input_tokens": 96077,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 76427,
+      "output_tokens": 13471,
+      "reasoning_tokens": 3736,
+      "total_tokens": 109548,
+      "input_tokens_details": {
+        "cache_write_tokens": 76427,
+        "cached_tokens": 0
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 3736
+      }
+    },
+    "cost": {
+      "usd": 1.855388,
+      "tier": "short",
+      "turns": 8,
+      "input_tokens": 96077,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 76427,
+      "output_tokens": 13471,
+      "reasoning_tokens": 3736,
+      "prices_per_mtok": {
+        "input": 10.0,
+        "cached_input": 1.0,
+        "cache_write": 12.5,
+        "output": 50.0
+      },
+      "model_usd": 1.825388,
+      "container": {
+        "usd": 0.03,
+        "sessions": 1,
+        "session_usd": 0.03,
+        "billed_seconds": 326.0
+      }
+    },
+    "latency_seconds": 326.0,
+    "input_tokens_estimate": 36385,
+    "response_id": "resp_0ae439b08a24a7a3006ab241d27c0c87d2b214c441d2c2e296",
+    "error": null,
+    "raw_text_head": "{\n  \"product_categories\": [\n    {\"category\":\"Kitchen & Dining\",\"row_id\":1},\n    {\"category\":\"Home & Garden\",\"row_id\":2},\n    {\"category\":\"Bags & Accessories\",\"row_id\":3},\n    {\"category\":\"Arts, Crafts & Stationery\",\"row_id\":4},\n    {\"category\":\"Seasonal & Party\",\"row_id\":5},\n    {\"category\":\"Home & Garden\",\"row_id\":6},\n    {\"category\":\"Seasonal & Party\",\"row_id\":7},\n    {\"category\":\"Home & Garden\"",
+    "tool_calls": 7,
+    "tool_trace": [
+      {
+        "code": "import csv, json\nfrom decimal import Decimal\nfrom collections import defaultdict, Counter\np_path=\"/mnt/data/file-8RNup583N5MqW3JWMZW4r4-retail_products.csv\"\nr_path=\"/mnt/data/file-1LENa5NKBzyyH4Q2eKEdBf-retail_revenue_by_product_and_country.csv\"\nwith open(p_path,newline='') as f:\n    products=list(csv.DictReader(f))\nwith open(r_path,newline='') as f:\n    revenues=list(csv.DictReader(f))\nlen(products),len(revenues),len({r['country'] for r in revenues})\n",
+        "code_chars": 456,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "for p in products:\n    print(p['row_id'],p['stock_code'],p['description'])\n",
+        "code_chars": 75,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "category_names = {\n    \"H\": \"Home & Garden\",\n    \"K\": \"Kitchen & Dining\",\n    \"B\": \"Bags & Accessories\",\n    \"T\": \"Toys & Games\",\n    \"A\": \"Arts, Crafts & Stationery\",\n    \"P\": \"Seasonal & Party\",\n    \"W\": \"Wellness & Personal Care\",\n    \"N\": \"Non-gift Fees\",\n}\nassignments = {\n1:\"K\",2:\"H\",3:\"B\",4:\"A\",5:\"P\",6:\"H\",7:\"P\",8:\"H\",9:\"K\",10:\"K\",\n11:\"B\",12:\"H\",13:\"B\",14:\"H\",15:\"B\",16:\"H\",17:\"H\",18:\"H\",19:\"K\",20:\"W\",\n21:\"A\",22:\"B\",23:\"P\",24:\"K\",25:\"W\",26:\"P\",27:\"B\",28:\"B\",29:\"B\",30:\"H\",\n31:\"H\",32:\"K\",33:\"H\",34:\"K\",35:\"K\",36:\"W\",37:\"A\",38:\"H\",39:\"K\",40:\"H\",\n41:\"H\",42:\"H\",43:\"P\",44:\"B\",45:\"H\",46:\"H\",47:\"A\",48:\"B\",49:\"H\",50:\"W\",\n51:\"H\",52:\"H\",53:\"B\",54:\"B\",55:\"H\",56:\"B\",57:\"H\",58:\"K\",59:\"K\",60:\"T\",\n61:\"H\",62:\"H\",63:\"B\",64:\"H\",65:\"P\",66:\"B\",67:\"H\",68:\"B\",69:\"B\",70:\"P\",\n71:\"K\",72:\"K\",73:\"K\",74:\"H\",75:\"H\",76:\"K\",77:\"B\",78:\"W\",79:\"K\",80:\"H\",\n81:\"H\",82:\"K\",83:\"B\",84:\"H\",85:\"H\",86:\"H\",87:\"B\",88:\"H\",89:\"K\",90:\"W\",\n91:\"B\",92:\"K\",93:\"B\",94:\"N\",95:\"K\",96:\"H\",97:\"W\",98:\"H\",99:\"B\",100:\"K\",\n101:\"B\",102:\"A\",103:\"T\",104:\"H\",105:\"W\",106:\"H\",107:\"K\",108:\"K\",109:\"K\",110:\"B\",\n111:\"K\",112:\"H\",113:\"B\",114:\"H\",115:\"K\",116:\"B\",117:\"W\",118:\"H\",119:\"P\",120:\"W\",\n121:\"H\",122:\"A\",123:\"H\",124:\"W\",125:\"H\",126:\"H\",127:\"W\",12",
+        "code_chars": 2787,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "stock_to_category={p[\"stock_code\"]:category_names[assignments[int(p[\"row_id\"])]] for p in products}\ntotals=defaultdict(Decimal)\nproduct_totals=defaultdict(Decimal)\nused=0\nfor r in revenues:\n    cat=stock_to_category[r[\"stock_code\"]]\n    amount=Decimal(r[\"revenue\"])\n    assert amount == amount.quantize(Decimal(\"0.01\"))\n    totals[cat,r[\"country\"]] += amount\n    product_totals[r[\"stock_code\"]] += amount\n    used+=1\nassert used == 4758\nmismatches=[(p[\"stock_code\"],product_totals[p[\"stock_code\"]],p[\"revenue\"]) for p in products if product_totals[p[\"stock_code\"]]!=Decimal(p[\"revenue\"])]\nlen(totals),sum(totals.values()),len(mismatches),mismatches[:5]\n",
+        "code_chars": 653,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "answer={\n    \"product_categories\":[\n        {\"row_id\":int(p[\"row_id\"]),\"category\":stock_to_category[p[\"stock_code\"]]}\n        for p in sorted(products,key=lambda p:int(p[\"row_id\"]))\n    ],\n    \"revenue_by_category_and_country\":[\n        {\"category\":category,\"country\":country,\"revenue\":float(total)}\n        for (category,country),total in sorted(totals.items())\n    ],\n}\nencoded=json.dumps(answer,ensure_ascii=False,allow_nan=False)\nassert len(answer[\"product_categories\"])==300\nassert len(answer[\"revenue_by_category_and_country\"])==264\nassert sum(Decimal(str(r[\"revenue\"])) for r in answer[\"revenue_by_category_and_country\"])==sum(Decimal(r[\"revenue\"]) for r in revenues)\nlen(encoded), Counter(r[\"category\"] for r in answer[\"revenue_by_category_and_country\"])\n",
+        "code_chars": 763,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "for row in answer[\"product_categories\"]:\n    print(json.dumps(row)+\",\")\n",
+        "code_chars": 72,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "for row in answer[\"revenue_by_category_and_country\"]:\n    print(json.dumps(row)+\",\")\n",
+        "code_chars": 85,
+        "outputs": [],
+        "status": "completed"
+      }
+    ],
+    "container_id": "cntr_6ab241d75a588191bc8f08940c12cfea0dd64667ed7f5498",
+    "file_ids": [
+      "file-8RNup583N5MqW3JWMZW4r4",
+      "file-1LENa5NKBzyyH4Q2eKEdBf"
+    ],
+    "output_summary": {
+      "product_categories": "list[300]",
+      "revenue_by_category_and_country": "list[264]"
+    }
+  },
+  "comparison": {
+    "notes": [
+      "Bounded to the 300 highest-revenue products and their 4758 product x country revenue rows. Both approaches define their own gift taxonomy, so labels are compared with clustering agreement (ARI / NMI) rather than exact match; the revenue table is recomputed exactly from each approach's own labels to check the arithmetic."
+    ],
+    "pipeline": {
+      "from_step": "(none)",
+      "question": "(none)",
+      "products_labeled": 0,
+      "categories": {},
+      "aggregate_step": null,
+      "revenue_check": null
+    },
+    "oneshot": {
+      "products_labeled": 300,
+      "categories": {
+        "Home & Garden": 108,
+        "Kitchen & Dining": 69,
+        "Bags & Accessories": 43,
+        "Seasonal & Party": 25,
+        "Wellness & Personal Care": 24,
+        "Arts, Crafts & Stationery": 17,
+        "Toys & Games": 13,
+        "Non-gift Fees": 1
+      },
+      "revenue_check": {
+        "cells_claimed": 264,
+        "cells_expected": 264,
+        "cells_with_expected_counterpart": 264,
+        "cells_missing": 0,
+        "cells_extra": 0,
+        "exact_to_cent": 264,
+        "within_0_5_percent": 264,
+        "max_abs_error": 0.0,
+        "total_revenue_claimed": 10328259.82,
+        "total_revenue_expected": 10328259.82,
+        "worst_cells": []
+      }
+    },
+    "agreement": {
+      "products_labeled_by_both": 0,
+      "adjusted_rand_index": null,
+      "nmi": null
+    },
+    "examples": {
+      "label_pairs": []
+    }
+  },
+  "generated_at": "2026-09-22T08:59:47Z"
+}

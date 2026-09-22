@@ -1,0 +1,182 @@
+{
+  "run": "oneshot-tools",
+  "arms": [
+    "oneshot"
+  ],
+  "oneshot_variant": "tools",
+  "planner_config": null,
+  "scenario": "support_requests",
+  "title": "Customer support: cancel because unaffordable",
+  "prompt": "Find customers trying to cancel an order because they cannot afford it.",
+  "inputs": [
+    {
+      "name": "support_requests",
+      "rows": 3000,
+      "columns": [
+        "row_id",
+        "flags",
+        "instruction"
+      ],
+      "approx_tokens": 42683
+    }
+  ],
+  "notes": [
+    "9 rows satisfy the proxy gold definition among 3000 messages."
+  ],
+  "pipeline": {
+    "plan": {},
+    "planner": {},
+    "estimate": {},
+    "calibration": {},
+    "job": {
+      "job_id": null,
+      "state": null,
+      "terminal_reason": null,
+      "usage": null,
+      "progress": null,
+      "error_summary": null,
+      "errors": null
+    },
+    "step_rows": {},
+    "datasets": {},
+    "timings_seconds": {},
+    "cost": {},
+    "error": "pipeline arm not run"
+  },
+  "oneshot": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "variant": "tools",
+    "status": "completed",
+    "usage": {
+      "input_tokens": 48952,
+      "cached_input_tokens": 1453,
+      "cache_write_tokens": 46928,
+      "output_tokens": 406,
+      "reasoning_tokens": 368,
+      "total_tokens": 49358,
+      "input_tokens_details": {
+        "cache_write_tokens": 46928,
+        "cached_tokens": 1453
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 368
+      }
+    },
+    "cost": {
+      "usd": 0.644063,
+      "tier": "short",
+      "turns": 2,
+      "input_tokens": 48952,
+      "cached_input_tokens": 1453,
+      "cache_write_tokens": 46928,
+      "output_tokens": 406,
+      "reasoning_tokens": 368,
+      "prices_per_mtok": {
+        "input": 10.0,
+        "cached_input": 1.0,
+        "cache_write": 12.5,
+        "output": 50.0
+      },
+      "model_usd": 0.614063,
+      "container": {
+        "usd": 0.03,
+        "sessions": 1,
+        "session_usd": 0.03,
+        "billed_seconds": 300
+      }
+    },
+    "latency_seconds": 18.1,
+    "input_tokens_estimate": 43023,
+    "response_id": "resp_0986dc295cc024dc006ab241d032c087d2be71bd255bacf22d",
+    "error": null,
+    "raw_text_head": "{\"matching_row_ids\":[22,262,663,1009,2479,2887,2937,2951,2973]}",
+    "tool_calls": 1,
+    "tool_trace": [
+      {
+        "code": "import csv, json\npath=\"/mnt/data/file-Sns5G8CHfXtyg5AWWMfWq7-support_requests.csv\"\nwith open(path, newline=\"\", encoding=\"utf-8\") as f:\n    rows=list(csv.DictReader(f))\nselected_ids={22,262,663,1009,2479,2887,2937,2951,2973}\nmatches=[]\nfor row in rows:\n    if int(row[\"row_id\"]) in selected_ids:\n        matches.append(int(row[\"row_id\"]))\n        print(row[\"row_id\"],row[\"instruction\"])\nprint(len(rows))\nprint(json.dumps({\"matching_row_ids\":matches}))\n",
+        "code_chars": 451,
+        "outputs": [],
+        "status": "completed"
+      }
+    ],
+    "container_id": "cntr_6ab241d1be308191ad8b9aacfe9299f20f5c7ae85c1b2599",
+    "file_ids": [
+      "file-Sns5G8CHfXtyg5AWWMfWq7"
+    ],
+    "output_summary": {
+      "matching_row_ids": "list[9]"
+    }
+  },
+  "comparison": {
+    "gold_definition": "intent == cancel_order AND text mentions affordability (regex); the Bitext intent labels were removed from both inputs",
+    "gold_size": 9,
+    "pipeline": {
+      "selected": 0,
+      "from_step": "(none)",
+      "tp": 0,
+      "fp": 0,
+      "fn": 9,
+      "precision": null,
+      "recall": 0.0,
+      "f1": 0.0,
+      "review_view": {},
+      "gold_rows_in_review_view": 0,
+      "missed_gold_in_review_view": 0
+    },
+    "oneshot": {
+      "selected": 9,
+      "tp": 9,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "agreement": {
+      "both": 0,
+      "only_a": 0,
+      "only_b": 9,
+      "jaccard": 0.0
+    },
+    "examples": {
+      "only_pipeline": [],
+      "only_oneshot": [
+        {
+          "row_id": 22,
+          "text": "I cannot afford order {{Order Number}}"
+        },
+        {
+          "row_id": 262,
+          "text": "i cant afford order {{Order Number}}"
+        },
+        {
+          "row_id": 663,
+          "text": "I can't pay for purchase {{Order Number}}"
+        },
+        {
+          "row_id": 1009,
+          "text": "I can no longer pay for purchase {{Order Number}}"
+        },
+        {
+          "row_id": 2479,
+          "text": "I can't afford order {{Order Number}}, could you cancel it?"
+        },
+        {
+          "row_id": 2887,
+          "text": "I can no longer afford purchase {{Order Number}}"
+        },
+        {
+          "row_id": 2937,
+          "text": "I can't afford order {{Order Number}}"
+        },
+        {
+          "row_id": 2951,
+          "text": "I can no longer afford purchase {{Order Number}}"
+        }
+      ],
+      "missed_by_both": []
+    }
+  },
+  "generated_at": "2026-09-22T08:59:47Z"
+}
