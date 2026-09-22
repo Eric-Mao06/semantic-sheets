@@ -33,8 +33,9 @@ railway domain
 ```
 
 Without `TYPESAFE_API_KEY`, set `OPENROUTER_API_KEY` and Jev runs over OpenRouter only (the `direct` route is
-skipped). To run the planner on a cheaper model, also set `PLANNER_PROVIDER=openrouter` and
-`PLANNER_MODEL=deepseek/deepseek-v4.1-flash` (see [configuration.md](configuration.md)).
+skipped). The planner defaults to DeepSeek V4.1 Flash on Together through OpenRouter, so `OPENROUTER_API_KEY` is
+all it needs; `OPENAI_API_KEY` is only required with `PLANNER_PROVIDER=openai` (`gpt-6-astra`, 15–50 s per plan
+instead of 2–5 s). See [configuration.md](configuration.md).
 
 ## Before exposing it
 

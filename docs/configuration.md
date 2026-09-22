@@ -34,13 +34,13 @@ and need neither.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PLANNER_PROVIDER` | `openai` | `openai` (Responses API) or `openrouter` (chat completions). |
+| `PLANNER_PROVIDER` | `openrouter` | `openrouter` (chat completions) or `openai` (Responses API). |
 | `OPENAI_API_KEY` | — | Required when `PLANNER_PROVIDER=openai`. |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | |
-| `PLANNER_MODEL` | `gpt-6-astra` | Any model id the provider accepts (e.g. `deepseek/deepseek-v4.1-flash`, `z-ai/glm-5.3-flash`). |
+| `PLANNER_MODEL` | `deepseek/deepseek-v4.1-flash` (`gpt-6-astra` when `PLANNER_PROVIDER=openai`) | Any model id the provider accepts (e.g. `z-ai/glm-5.3-flash`). DeepSeek V4.1 Flash plans in 2–5 s; `gpt-6-astra` takes 15–50 s. |
 | `PLANNER_REASONING` | `high` | Reasoning effort passed to the provider. |
 | `PLANNER_MAX_OUTPUT_TOKENS` | `12000` | |
-| `PLANNER_OPENROUTER_PROVIDERS` | — | OpenRouter only: comma-separated upstream providers to try in order (e.g. `Together`). Empty = OpenRouter's routing. |
+| `PLANNER_OPENROUTER_PROVIDERS` | `Together` for the default model, otherwise — | OpenRouter only: comma-separated upstream providers to try in order. Empty = OpenRouter's routing. Setting `PLANNER_MODEL` explicitly clears the default pin. |
 | `PLANNER_OPENROUTER_ALLOW_FALLBACKS` | `0` | `1` lets OpenRouter fall back beyond the pinned providers. |
 
 ## Storage and workspace

@@ -98,8 +98,8 @@ cd web && npm install && npm run dev
 Open http://localhost:5173, pick a sample dataset, and run the suggested operation. The demo workspace token is
 `demo-token`; the web app sends it as `Authorization: Bearer demo-token`, and MCP clients use the same header.
 
-To run the planner on a cheaper model, set `PLANNER_PROVIDER=openrouter` and
-`PLANNER_MODEL=deepseek/deepseek-v4.1-flash` (2–5 s per plan, ~$0.001 per call in the benchmark).
+The planner defaults to `deepseek/deepseek-v4.1-flash` on Together via OpenRouter (2–5 s per plan, ~$0.001 per
+call in the benchmark). Set `PLANNER_PROVIDER=openai` to plan with `gpt-6-astra` instead (15–50 s per plan).
 
 One-container deployment (Docker, Railway): [`docs/deploy.md`](docs/deploy.md).
 

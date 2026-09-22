@@ -19,6 +19,20 @@ def _env_float(name: str, default: float) -> float:
     return float(v) if v not in (None, "") else default
 
 
+_DEFAULT_PLANNER_MODELS = {"openrouter": "deepseek/deepseek-v4.1-flash", "openai": "gpt-6-astra"}
+
+
+def _default_planner_model() -> str:
+    return _DEFAULT_PLANNER_MODELS.get(os.environ.get("PLANNER_PROVIDER", "openrouter"), "gpt-6-astra")
+
+
+def _default_planner_openrouter_providers() -> str:
+    v = os.environ.get("PLANNER_OPENROUTER_PROVIDERS")
+    if v is not None:
+        return v
+    return "Together" if not os.environ.get("PLANNER_MODEL") else ""
+
+
 @dataclass
 class Settings:
     data_dir: Path = field(default_factory=lambda: Path(os.environ.get("SEMSHEET_DATA_DIR", str(Path(__file__).resolve().parents[2] / "data"))))
@@ -47,15 +61,17 @@ class Settings:
     jev_max_retries: int = 5
     jev_timeout_seconds: float = 60.0
 
-    # Planner: frontier model. PLANNER_PROVIDER "openai" calls the OpenAI Responses API directly; "openrouter" calls
-    # any OpenRouter model (e.g. z-ai/glm-5.3-flash) through its OpenAI-compatible chat completions endpoint.
-    planner_provider: str = field(default_factory=lambda: os.environ.get("PLANNER_PROVIDER", "openai"))
+    # Planner: frontier model. PLANNER_PROVIDER "openrouter" (default) calls any OpenRouter model through its
+    # OpenAI-compatible chat completions endpoint; "openai" calls the OpenAI Responses API directly. The default
+    # planner is DeepSeek V4.1 Flash pinned to Together (2-5 s per plan in benchmarks/); gpt-6-astra takes 15-50 s.
+    planner_provider: str = field(default_factory=lambda: os.environ.get("PLANNER_PROVIDER", "openrouter"))
     openai_api_key: str = field(default_factory=lambda: os.environ.get("OPENAI_API_KEY", ""))
     openrouter_api_key: str = field(default_factory=lambda: os.environ.get("OPENROUTER_API_KEY", ""))
     openrouter_base_url: str = field(default_factory=lambda: os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"))
-    planner_model: str = field(default_factory=lambda: os.environ.get("PLANNER_MODEL", "gpt-6-astra"))
+    planner_model: str = field(default_factory=lambda: os.environ.get("PLANNER_MODEL") or _default_planner_model())
     # OpenRouter only: pin the upstream provider(s), e.g. "CoreWeave" or "Together,CoreWeave". Empty = OpenRouter's default routing.
-    planner_openrouter_providers: tuple[str, ...] = field(default_factory=lambda: tuple(p.strip() for p in os.environ.get("PLANNER_OPENROUTER_PROVIDERS", "").split(",") if p.strip()))
+    # Defaults to "Together" for the default DeepSeek planner; an explicit PLANNER_MODEL gets OpenRouter's routing.
+    planner_openrouter_providers: tuple[str, ...] = field(default_factory=lambda: tuple(p.strip() for p in _default_planner_openrouter_providers().split(",") if p.strip()))
     planner_openrouter_allow_fallbacks: bool = field(default_factory=lambda: os.environ.get("PLANNER_OPENROUTER_ALLOW_FALLBACKS", "0") == "1")
     planner_reasoning_effort: str = field(default_factory=lambda: os.environ.get("PLANNER_REASONING", "high"))
     planner_max_output_tokens: int = field(default_factory=lambda: _env_int("PLANNER_MAX_OUTPUT_TOKENS", 12_000))
