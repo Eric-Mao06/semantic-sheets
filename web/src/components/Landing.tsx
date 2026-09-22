@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Papa from "papaparse";
 import { api, ApiError } from "../api";
 import type { DatasetInfo, DatasetListItem, Sample } from "../types";
+import { useIsMobile } from "../hooks/useMediaQuery";
 
 export type Preview = { columns: string[]; rows: unknown[][]; filename: string; bytes: number; errors: number; capped: boolean };
 
@@ -14,6 +15,7 @@ const PREVIEW_ROWS = 100;
 const PREVIEW_BYTES = 512 * 1024;
 
 export default function Landing({ onDataset, onPreview }: Props) {
+  const isMobile = useIsMobile();
   const [samples, setSamples] = useState<Sample[]>([]);
   const [datasets, setDatasets] = useState<DatasetListItem[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -130,7 +132,7 @@ export default function Landing({ onDataset, onPreview }: Props) {
           </div>
         ) : (
           <>
-            <div style={{ fontSize: 16, fontWeight: 600 }}>Drop a CSV or TSV here, or click to choose</div>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>{isMobile ? "Tap to choose a CSV or TSV file" : "Drop a CSV or TSV here, or click to choose"}</div>
             <div className="muted" style={{ marginTop: 6 }}>Up to 100 MiB and 100,000 rows. Identifiers with leading zeros stay text. Demo uploads are retained for 7 days.</div>
           </>
         )}
@@ -160,7 +162,7 @@ export default function Landing({ onDataset, onPreview }: Props) {
           <div className="dataset-list">
             {datasets.map((d) => (
               <div className="item" key={d.dataset_id}>
-                <div className="grow">
+                <div className="grow name">
                   <b>{d.name}</b> <span className="muted">· {d.row_count.toLocaleString()} rows · {d.column_count} columns</span>
                 </div>
                 <button className="btn small" onClick={() => openDataset(d)} disabled={busy !== null}>Open</button>
