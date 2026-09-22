@@ -35,6 +35,12 @@ three routes speak nearly the same protocol; the client translates the one diffe
 questions and answers are spelled `boolean`/`probability` there instead of `noul`) so stored raw answers look the
 same whichever route served them. Tests use a fake provider and need no key.
 
+Routes are not equal under load. Vercel AI Gateway throttles Jev after a short burst (`429`, `retry-after` around
+20 s, "upstream provider is currently experiencing high demand"); the client puts a throttled route on cooldown for
+the `retry-after` it was given and fails the packet over to a ready route at once, so a throttled route can only
+slow down its own share. In a run with all three keys, TypeSafe direct and OpenRouter carried roughly equal shares
+and Vercel about 5–25%. Job usage records `route_requests` and `route_failures` per route.
+
 ### Planner (plain language → plan)
 
 | Variable | Default | Meaning |
