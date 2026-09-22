@@ -182,6 +182,54 @@ def test_client_spreads_packets_over_routes_and_fails_over(monkeypatch):
     assert all(a == {"type": "noul", "noul": 0.9} for r in results for a in r.answers.values())
 
 
+def test_client_fails_over_immediately_and_honours_retry_after_as_route_cooldown(monkeypatch):
+    import asyncio
+    import time
+
+    import httpx
+
+    from semsheet.config import settings
+
+    monkeypatch.setattr(settings, "jev_routes", ("direct", "vercel"))
+    monkeypatch.setattr(settings, "typesafe_api_key", "ts-key")
+    monkeypatch.setattr(settings, "vercel_ai_gateway_api_key", "vck-key")
+    hits = {"direct": 0, "vercel": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        body = _json.loads(request.content)
+        route = "vercel" if "vercel" in request.url.host else "direct"
+        hits[route] += 1
+        if route == "vercel":
+            # What Vercel AI Gateway does under sustained load: throttle with a long retry-after.
+            return httpx.Response(429, headers={"retry-after": "23"}, json={"error": {"type": "rate_limit_exceeded"}})
+        answers = {k: {"type": "noul", "noul": 0.9} for k in body["questions"]}
+        return httpx.Response(200, json={"model": body["model"], "answers": answers, "usage": {"input_tokens": 100, "output_tokens": 5}})
+
+    q = Question.model_validate({"name": "q", "kind": "boolean", "instruction": "Is it x?", "criteria": {"true": "t", "false": "f"}})
+    packets, _ = jev.pack([jev.PacketItem(row_id=i, payload={"text": f"row {i}"}, questions=[q]) for i in range(12)], 1)
+
+    async def run():
+        client = jev.JevClient()
+        client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            t0 = time.monotonic()
+            results = await asyncio.gather(*[client.evaluate(p, "jev-1.13.0") for p in packets])
+            return results, time.monotonic() - t0, client.route_failures, {r.name: r.cooldown_until - time.monotonic() for r in client.routes}
+        finally:
+            await client._client.aclose()
+
+    results, elapsed, failures, cooldowns = asyncio.run(run())
+    assert all(r.route == "direct" for r in results) and len(results) == 12
+    # No packet waited out the 23 s retry-after: it failed over to the ready route within a fraction of a second.
+    assert elapsed < 3.0
+    # Vercel was tried at most once per packet before its cooldown made every later pick prefer the direct route.
+    assert 1 <= failures["vercel"] == hits["vercel"] <= 6
+    assert failures["direct"] == 0
+    assert 20 < cooldowns["vercel"] <= 23 and cooldowns["direct"] <= 0
+
+
 def test_cache_key_depends_on_question_and_payload_not_row():
     q = Question.model_validate({"name": "q", "kind": "boolean", "instruction": "Is it x?", "criteria": {"true": "t", "false": "f"}})
     q2 = Question.model_validate({"name": "other", "kind": "boolean", "instruction": "Is it x?", "criteria": {"true": "t", "false": "f"}})

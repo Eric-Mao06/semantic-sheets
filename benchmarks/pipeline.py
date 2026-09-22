@@ -117,6 +117,7 @@ def run_pipeline(scenario: Scenario, prep: Prepared, spend_target_usd: float = 5
             "jev_usd_reported_by_job": ju.get("spent_usd"),
             "jev_input_tokens": ju.get("input_tokens"), "jev_requests": ju.get("provider_requests"), "jev_cache_hits": ju.get("cache_hits"),
             "jev_route_requests": ju.get("route_requests") or {},
+            "jev_route_failures": ju.get("route_failures") or {},
             "total_usd": round(res.planner["cost"]["usd"] + jev_usd, 6),
         }
         if plan_from is not None:

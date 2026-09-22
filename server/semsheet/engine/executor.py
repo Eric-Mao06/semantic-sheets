@@ -116,6 +116,7 @@ class Usage:
     cache_hits: int = 0
     ambiguous_attempts: int = 0
     route_requests: dict[str, int] = field(default_factory=dict)
+    route_failures: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         d = self.__dict__.copy()
@@ -390,7 +391,10 @@ class JobRunner:
                 stats["requests"] += 1
                 usage.ambiguous_attempts = self.client.ambiguous_attempts
                 usage.route_requests = dict(getattr(self.client, "route_requests", None) or {})
+                usage.route_failures = dict(getattr(self.client, "route_failures", None) or {})
 
+        # Keep enough packets in flight to fill every route's concurrency (the client bounds each route itself).
+        max_pending = settings.jev_concurrency * max(2, len(getattr(self.client, "routes", None) or ()))
         pending: list[asyncio.Task] = []
         for i, pkt in enumerate(packets):
             # Between packets: cancellation, deadline, request cap and spend reservation.
@@ -406,7 +410,7 @@ class JobRunner:
                 self._stop_after_commit = s
                 return results
             pending.append(asyncio.create_task(one(i, pkt)))
-            if len(pending) >= settings.jev_concurrency * 2:
+            if len(pending) >= max_pending:
                 done, still = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 pending = list(still)
         if pending:

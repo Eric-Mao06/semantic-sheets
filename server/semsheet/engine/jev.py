@@ -348,6 +348,11 @@ class JevClient:
     def route_requests(self) -> dict[str, int]:
         return {r.name: r.requests_made for r in self.routes}
 
+    @property
+    def route_failures(self) -> dict[str, int]:
+        """Retryable failures (429/5xx/transport) per route; a route with many is being throttled upstream."""
+        return {r.name: r.failures for r in self.routes}
+
     async def __aenter__(self) -> JevClient:
         self._client = httpx.AsyncClient(timeout=settings.jev_timeout_seconds, limits=httpx.Limits(max_connections=64 * max(1, len(self.routes))))
         return self
@@ -384,16 +389,22 @@ class JevClient:
                 outcome.attempts = attempts
                 outcome.latency_ms = (time.monotonic() - started) * 1000
                 return outcome
-            # Retryable failure on this route: back off, then try another route if there is one.
+            # Retryable failure on this route. The route cools down for as long as the provider asked (retry-after)
+            # or the current backoff; the packet itself fails over to another ready route right away and only
+            # waits when every route is cooling down. Sleeping out a 23 s retry-after here would idle a dispatch
+            # slot while healthy routes sit unused, which is how one throttled route can stall the whole job.
             route.failures += 1
-            route.cooldown_until = time.monotonic() + delay
+            now = time.monotonic()
+            cooldown = outcome.retry_after if outcome.retry_after is not None else delay
+            route.cooldown_until = max(route.cooldown_until, now + cooldown)
             last_failed = route
             if attempts >= settings.jev_max_retries:
                 raise JevError(f"{outcome} after {attempts} attempts", status=outcome.status, retryable=True)
-            wait = outcome.retry_after if outcome.retry_after is not None else delay
-            if len(self.routes) > 1 and outcome.retry_after is None:
-                wait = min(wait, 0.25)
-            await asyncio.sleep(wait + random.uniform(0, min(delay, 2)))
+            if any(r is not route and r.cooldown_until <= now for r in self.routes):
+                wait = min(cooldown, 0.25)
+            else:
+                wait = max(0.0, min(r.cooldown_until for r in self.routes) - now)
+            await asyncio.sleep(wait + random.uniform(0, min(wait, 2)))
             delay = min(delay * 2, 16)
 
     async def _attempt(self, route: JevRoute, body: dict[str, Any]) -> JevResult | _Retry:
