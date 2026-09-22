@@ -20,6 +20,9 @@ def _env_float(name: str, default: float) -> float:
 @dataclass
 class Settings:
     data_dir: Path = field(default_factory=lambda: Path(os.environ.get("SEMSHEET_DATA_DIR", str(Path(__file__).resolve().parents[2] / "data"))))
+    # Demo datasets offered on the landing page; defaults to <data_dir>/samples. Set separately when the data dir is
+    # a mounted volume and the samples ship with the code (see Dockerfile).
+    samples_dir: Path = field(default_factory=lambda: Path(os.environ["SEMSHEET_SAMPLES_DIR"]) if os.environ.get("SEMSHEET_SAMPLES_DIR") else Path(os.environ.get("SEMSHEET_DATA_DIR", str(Path(__file__).resolve().parents[2] / "data"))) / "samples")
 
     # Provider: TypeSafe Jev
     typesafe_api_key: str = field(default_factory=lambda: os.environ.get("TYPESAFE_API_KEY", ""))

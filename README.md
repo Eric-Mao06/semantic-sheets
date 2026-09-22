@@ -63,7 +63,9 @@ sends it as `Authorization: Bearer demo-token`, and MCP clients use the same hea
 
 `scripts/prepare_samples.py` turns the raw public downloads in `data/raw/` (Bitext, CFPB, Inside Airbnb NYC,
 BANKING77, WDC product matching, Online Retail II) into bounded demo CSVs in `data/samples/`. The landing page
-lists them under "Sample datasets"; each card carries an example operation.
+lists them under "Sample datasets"; each card carries an example operation. The eight bounded files the landing
+page uses are checked in, so a fresh clone (and the Docker image) has them without running the script.
+`SEMSHEET_SAMPLES_DIR` points the API at a different samples directory (default `data/samples`).
 
 ## Deploy (Railway)
 
@@ -79,8 +81,9 @@ railway domain
 ```
 
 Metadata lives in SQLite on the volume, so keep the service at one replica. Without `TYPESAFE_API_KEY`, set
-`OPENROUTER_API_KEY` and Jev runs over OpenRouter only (the `direct` route is skipped). The sample datasets
-are not part of the image; copy `data/samples/*.csv` onto the volume (`railway volume files`) or upload CSVs.
+`OPENROUTER_API_KEY` and Jev runs over OpenRouter only (the `direct` route is skipped). The bounded demo
+datasets in `data/samples/` are versioned and copied into the image (`SEMSHEET_SAMPLES_DIR=/app/samples`);
+the raw downloads and the large scale files stay local.
 
 ## Test
 

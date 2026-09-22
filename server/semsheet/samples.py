@@ -74,4 +74,4 @@ SAMPLES: list[dict] = [
 
 
 def sample_path(file: str) -> Path:
-    return settings.data_dir / "samples" / file
+    return settings.samples_dir / file

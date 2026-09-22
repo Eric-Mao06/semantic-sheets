@@ -19,7 +19,8 @@ ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/app/server/.venv \
     PATH="/app/server/.venv/bin:$PATH" \
-    SEMSHEET_DATA_DIR=/app/data
+    SEMSHEET_DATA_DIR=/app/data \
+    SEMSHEET_SAMPLES_DIR=/app/samples
 
 WORKDIR /app/server
 COPY server/pyproject.toml server/uv.lock ./
@@ -27,6 +28,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY server/ /app/server/
 COPY --from=web /app/web/dist /app/web/dist
+# Demo datasets live in the image (not on the data volume) so redeploys keep them current.
+COPY data/samples/ /app/samples/
 COPY scripts/start.sh /app/scripts/start.sh
 RUN chmod +x /app/scripts/start.sh && mkdir -p /app/data
 

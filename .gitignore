@@ -1,5 +1,4 @@
 .venv/
-/data/
 __pycache__/
 *.pyc
 web/node_modules/
@@ -7,3 +6,17 @@ web/dist/
 .pytest_cache/
 *.log
 .env
+
+# Runtime data. Only the bounded demo datasets used by the landing page are versioned; the raw downloads and
+# the large scale files that scripts/prepare_samples.py also produces stay local.
+/data/*
+!/data/samples/
+/data/samples/*
+!/data/samples/bitext_support_3000.csv
+!/data/samples/banking77_test.csv
+!/data/samples/cfpb_complaints_5000.csv
+!/data/samples/airbnb_reviews_5000.csv
+!/data/samples/online_retail_products.csv
+!/data/samples/online_retail_product_country.csv
+!/data/samples/wdc_offers_left.csv
+!/data/samples/wdc_catalog_right.csv
