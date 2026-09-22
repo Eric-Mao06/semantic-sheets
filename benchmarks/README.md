@@ -7,6 +7,7 @@ For each of the six operations exercised in the MVP walkthrough, this benchmark 
 |---|---|
 | **Operators** (this repo) | A planner model sees only the schema and ≤ 20 sample rows and writes a typed plan. `jev-1.13.0` answers every per-row semantic question; DuckDB performs the filtering, sorting, joins and arithmetic. Uncertain judgements go to a review view instead of the output. Four runs: planner `gpt-6-astra` (reasoning `high`, OpenAI) with Jev direct; planner `z-ai/glm-5.3-flash` (reasoning `high`, OpenRouter) with Jev direct (`run1`); the same GLM planner with Jev spread over TypeSafe direct **and** OpenRouter's decisions endpoint (`planner-glm-5.3-flash`); and planner `deepseek/deepseek-v4.1-flash` (reasoning `high`, OpenRouter pinned to Together) with dual-route Jev. A fifth run (`planner-deepseek-v4.1-flash-calibrated`) re-submits the DeepSeek plans unchanged to an engine that calibrates each decision cut on the observed scores and flags near-cut rows instead of withholding them (see below). |
 | **One-shot** | `gpt-6-astra` (reasoning `high`) receives the whole CSV plus the prompt in a single Responses API request and must return the final answer as JSON that satisfies a strict schema. No tools, no code execution. |
+| **One-shot + code interpreter** (`oneshot-tools`) | The same model, prompt, inline CSV and strict schema, plus OpenAI's hosted code interpreter with the CSV files mounted in the container, so the model can run Python for the exact work (counts, sums, joins, sorting) while reading every row for the semantic judgements. Still one request; the tool loop runs server-side. See [Results with the code interpreter](#one-shot-with-the-code-interpreter). |
 
 Full numbers, every plan the planner wrote, and examples of disagreements: **[RESULTS.md](RESULTS.md)** (cross-run
 summary), `results/<run>/RESULTS.md` (per run) and `results/<run>/*.json` (raw). Prices are OpenAI, OpenRouter and
@@ -250,16 +251,18 @@ JEV_ROUTES=direct .venv/bin/python benchmarks/run.py ...   # pin Jev to the Type
 .venv/bin/python benchmarks/run.py --plan-from planner-deepseek-v4.1-flash --run planner-deepseek-v4.1-flash-calibrated \
     --reuse oneshot                                # re-run the engine on a previous run's plans (engine-only A/B; no planner call)
 .venv/bin/python benchmarks/calibration_dev.py --plan-from planner-deepseek-v4.1-flash   # held-out check of the cut rule on disjoint rows
+.venv/bin/python benchmarks/run.py --arms oneshot --oneshot-variant tools   # one-shot gpt-6-astra with the hosted code interpreter (run `oneshot-tools`)
 .venv/bin/python benchmarks/report.py              # regenerate RESULTS.md and results/<run>/RESULTS.md
 ```
 
-Each planner configuration is a run named `planner-<model>` (override with `--run`). `run.py` keeps its own Semantic
+Each planner configuration is a run named `planner-<model>` (override with `--run`); a run with only the one-shot arm
+is named `oneshot-<variant>`. `run.py` keeps its own Semantic
 Sheet store in `data/benchmark_store/` and stores raw operator outputs under `data/benchmark/raw_outputs/<run>/` and
-one-shot answers under `data/benchmark/raw_outputs/<scenario>/` (all ignored by git); `results/<run>/*.json` and the
-`RESULTS.md` files are committed. The planner provider is a server setting (`PLANNER_PROVIDER`, `PLANNER_MODEL`,
+one-shot answers under `data/benchmark/raw_outputs/<scenario>/` (`oneshot.json`; the code-interpreter variant as
+`oneshot_tools.json`; all ignored by git); `results/<run>/*.json` and the `RESULTS.md` files are committed. The planner provider is a server setting (`PLANNER_PROVIDER`, `PLANNER_MODEL`,
 `PLANNER_REASONING`, `PLANNER_OPENROUTER_PROVIDERS`, `OPENROUTER_API_KEY`), so the app itself can run on GLM 5.3 Flash or
 DeepSeek V4.1 Flash the same way.
 
 Files: `scenarios.py` (data prep, gold, one-shot schemas, comparisons), `pipeline.py` (drives the planner, Jev job and
-exports in-process), `oneshot.py` (Responses API call in background mode), `common.py` (prices, metrics), `report.py`,
+exports in-process), `oneshot.py` (Responses API call in background mode; `text` and `tools` variants), `common.py` (prices, metrics), `report.py`,
 `calibration_dev.py` (held-out diagnostics for the threshold calibration rule).
