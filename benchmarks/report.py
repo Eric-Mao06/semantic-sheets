@@ -80,7 +80,7 @@ def _cost_row(r: dict[str, Any]) -> tuple[str, str, str, str]:
     planner = pc.get("planner_usd")
     jev = pc.get("jev_usd_from_measured_tokens")
     total = pc.get("total_usd")
-    if pc.get("total_usd_comparable") is not None:
+    if _cache_served(pc):
         total = pc["total_usd_comparable"]
         jev_s = f"{_usd(pc.get('jev_usd_source_run'))} Jev (scores re-served from cache, {_f(pc.get('jev_cache_share'), pct=True)} hits; source run's Jev cost shown)"
     else:
@@ -91,9 +91,13 @@ def _cost_row(r: dict[str, Any]) -> tuple[str, str, str, str]:
             "")
 
 
+def _cache_served(pc: dict[str, Any]) -> bool:
+    return pc.get("total_usd_comparable") is not None and (pc.get("jev_cache_share") or 0) >= 0.5
+
+
 def _total(r: dict[str, Any]) -> float:
     c = r["pipeline"].get("cost") or {}
-    return float(c.get("total_usd_comparable") if c.get("total_usd_comparable") is not None else (c.get("total_usd") or 0.0))
+    return float(c["total_usd_comparable"] if _cache_served(c) else (c.get("total_usd") or 0.0))
 
 
 def _latency(r: dict[str, Any]) -> tuple[str, str]:
@@ -301,7 +305,7 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
     by_run = {r: {x["scenario"]: x for x in runs[r]} for r in names}
     base = runs[names[0]]
     out.append("## Quality\n")
-    out.append("| Scenario | One-shot (gpt-6-astra) | " + " | ".join(f"Operators, `{descs[r][0]}` planner" for r in names) + " |")
+    out.append("| Scenario | One-shot (gpt-6-astra) | " + " | ".join(f"Operators `{r}`" for r in names) + " |")
     out.append("|---|---|" + "---|" * len(names))
     for r0 in base:
         k = r0["scenario"]
@@ -313,7 +317,7 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
         out.append(f"| **{r0['title']}** | {ho} | " + " | ".join(cells) + " |")
     out.append("")
     out.append("## Cost and latency\n")
-    out.append("| Scenario | One-shot cost / latency | " + " | ".join(f"Operators cost / latency, `{descs[r][0]}` planner" for r in names) + " |")
+    out.append("| Scenario | One-shot cost / latency | " + " | ".join(f"Operators cost / latency `{r}`" for r in names) + " |")
     out.append("|---|---|" + "---|" * len(names))
     totals = {r: 0.0 for r in names}
     tot_o = 0.0
@@ -330,7 +334,7 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
             c = x["pipeline"].get("cost") or {}
             t = x["pipeline"].get("timings_seconds") or {}
             totals[r] += _total(x)
-            if c.get("total_usd_comparable") is not None:
+            if _cache_served(c):
                 cells.append(f"{_usd(c.get('planner_usd'))} planner + {_usd(c.get('jev_usd_source_run'))} Jev = **{_usd(_total(x))}** (cached scores; source run's cost and planner time) · {t.get('planner', 0):.0f}s + {t.get('job', 0):.0f}s")
             else:
                 cells.append(f"{_usd(c.get('planner_usd'))} planner + {_usd(c.get('jev_usd_from_measured_tokens'))} Jev = **{_usd(c.get('total_usd'))}** · {t.get('planner', 0):.0f}s + {t.get('job', 0):.0f}s")
@@ -338,7 +342,7 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
     out.append("| **Total** | **" + _usd(tot_o) + "** | " + " | ".join(f"**{_usd(totals[r])}** ({round(tot_o / totals[r], 1) if totals[r] else '–'}× cheaper than one-shot)" for r in names) + " |")
     out.append("")
     out.append("## Agreement between the two arms\n")
-    out.append("| Scenario | " + " | ".join(f"`{descs[r][0]}` planner" for r in names) + " |")
+    out.append("| Scenario | " + " | ".join(f"`{r}`" for r in names) + " |")
     out.append("|---|" + "---|" * len(names))
     for r0 in base:
         k = r0["scenario"]

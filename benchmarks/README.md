@@ -5,7 +5,7 @@ For each of the six operations exercised in the MVP walkthrough, this benchmark 
 
 | Arm | What happens |
 |---|---|
-| **Operators** (this repo) | A planner model sees only the schema and ≤ 20 sample rows and writes a typed plan. `jev-1.13.0` answers every per-row semantic question; DuckDB performs the filtering, sorting, joins and arithmetic. Uncertain judgements go to a review view instead of the output. Four runs: planner `gpt-6-astra` (reasoning `high`, OpenAI) with Jev direct; planner `z-ai/glm-5.3-flash` (reasoning `high`, OpenRouter) with Jev direct (`run1`); the same GLM planner with Jev spread over TypeSafe direct **and** OpenRouter's decisions endpoint (`planner-glm-5.3-flash`); and planner `deepseek/deepseek-v4.1-flash` (reasoning `high`, OpenRouter pinned to Together) with dual-route Jev. |
+| **Operators** (this repo) | A planner model sees only the schema and ≤ 20 sample rows and writes a typed plan. `jev-1.13.0` answers every per-row semantic question; DuckDB performs the filtering, sorting, joins and arithmetic. Uncertain judgements go to a review view instead of the output. Four runs: planner `gpt-6-astra` (reasoning `high`, OpenAI) with Jev direct; planner `z-ai/glm-5.3-flash` (reasoning `high`, OpenRouter) with Jev direct (`run1`); the same GLM planner with Jev spread over TypeSafe direct **and** OpenRouter's decisions endpoint (`planner-glm-5.3-flash`); and planner `deepseek/deepseek-v4.1-flash` (reasoning `high`, OpenRouter pinned to Together) with dual-route Jev. A fifth run (`planner-deepseek-v4.1-flash-calibrated`) re-submits the DeepSeek plans unchanged to an engine that calibrates each decision cut on the observed scores and flags near-cut rows instead of withholding them (see below). |
 | **One-shot** | `gpt-6-astra` (reasoning `high`) receives the whole CSV plus the prompt in a single Responses API request and must return the final answer as JSON that satisfies a strict schema. No tools, no code execution. |
 
 Full numbers, every plan the planner wrote, and examples of disagreements: **[RESULTS.md](RESULTS.md)** (cross-run
@@ -39,17 +39,19 @@ Tables are bounded so the one-shot request stays under gpt-6-astra's 272K-token 
 
 The one-shot answers are the same in every row of each scenario; only the operator side changes. `GLM run1` is the
 GLM 5.3 Flash planner with Jev direct only; `GLM run2` is the same planner with Jev over both routes and a fresh plan;
-`DeepSeek` is DeepSeek V4.1 Flash served by Together with dual-route Jev.
+`DeepSeek` is DeepSeek V4.1 Flash served by Together with dual-route Jev. `DeepSeek + calibrated cuts` re-runs the
+DeepSeek plans, word for word, on the engine with score-calibrated cuts (fresh Jev scores; mean per-row score
+difference from the source run 0.0005–0.015).
 
-| Scenario | Operators, `gpt-6-astra` planner | Operators, GLM run1 | Operators, GLM run2 | Operators, DeepSeek V4.1 Flash | One-shot (Astra) | Cost: Astra / GLM run1 / GLM run2 / DeepSeek / one-shot |
-|---|---|---|---|---|---|---|
-| Support: cancel because unaffordable | 7 rows, P 100% / R 78% | 2 rows, R 22%, **+6 gold rows in review** | 3 rows, R 33%, **+4 in review** | 3 rows, R 33%, **+5 in review** | 9 rows, P 100% / R 100% | $0.086 / $0.034 / $0.035 / $0.034 / $0.51 |
-| Banking: transfer problems (lenient gold) | pending F1 69%, failed F1 58% | pending F1 87%, failed F1 57% | pending F1 58%, failed F1 39% | pending F1 83%, failed F1 64% | pending F1 80%, failed F1 75% | $0.126 / $0.045 / $0.056 / $0.042 / $0.96 |
-| Complaints: filter + rank | 0 rows accepted, **10 in review** (incl. all 8 the one-shot picked) | 10 ranked (incl. all 8), 74 in review | 170 ranked (incl. all 8; 78% carry a keyword), 106 in review | 1 ranked, **12 in review** (7 of the one-shot's 8 among them) | 8 rows ranked | $0.120 / $0.015 / $0.011 / $0.014 / $2.13 |
-| Airbnb: unreliable Wi-Fi by property | 16 reviews / 16 properties, aggregate exact | 16 / 16, exact | 16 / 16, exact | 16 / 16, exact | 17 reviews / 17 properties, 16 of 17 prices right | $0.127 / $0.019 / $0.016 / $0.015 / $1.35 |
-| Retail: categories + revenue by country | 11 categories, **376 / 376 revenue cells exact** | 8 categories (33 products in review), 278 / 278 exact | 7 categories, 267 / 267 exact | 8 categories, 289 / 289 exact | 3 categories, 53 / 83 cells exact, worst cell off by $46,503 | $0.147 / $0.0065 / $0.0058 / $0.0067 / $5.07 (26 min) |
-| Product matching | 171 pairs, P 97% / R 42% (+75 gold pairs in review) | 175 pairs, R 43% (+69 in review) | 151 pairs, R 37% (+90 in review) | 139 pairs, P 98% / R 34% (+103 in review) | 357 pairs, P 97% / R 87% | $0.115 / $0.039 / $0.044 / $0.036 / $1.53 |
-| **Total** | | | | | | **$0.72 (16×) / $0.16 (73×) / $0.17 (69×) / $0.15 (78×) / $11.55** |
+| Scenario | Operators, `gpt-6-astra` planner | Operators, GLM run1 | Operators, GLM run2 | Operators, DeepSeek V4.1 Flash | Operators, DeepSeek + calibrated cuts | One-shot (Astra) | Cost: Astra / GLM run1 / GLM run2 / DeepSeek / calibrated / one-shot |
+|---|---|---|---|---|---|---|---|
+| Support: cancel because unaffordable | 7 rows, P 100% / R 78% | 2 rows, R 22%, **+6 gold rows in review** | 3 rows, R 33%, **+4 in review** | 3 rows, R 33%, **+5 in review** | **8 rows, P 100% / R 89%**, 0 in review, 0 flagged | 9 rows, P 100% / R 100% | $0.086 / $0.034 / $0.035 / $0.034 / $0.034 / $0.51 |
+| Banking: transfer problems (lenient gold) | pending F1 69%, failed F1 58% | pending F1 87%, failed F1 57% | pending F1 58%, failed F1 39% | pending F1 83%, failed F1 64% | pending F1 77%, failed F1 55% (97 rows flagged) | pending F1 80%, failed F1 75% | $0.126 / $0.045 / $0.056 / $0.042 / $0.044 / $0.96 |
+| Complaints: filter + rank | 0 rows accepted, **10 in review** (incl. all 8 the one-shot picked) | 10 ranked (incl. all 8), 74 in review | 170 ranked (incl. all 8; 78% carry a keyword), 106 in review | 1 ranked, **12 in review** (7 of the one-shot's 8 among them) | **20 ranked (incl. all 8; 90% carry a keyword)**, 0 in review, 148 flagged | 8 rows ranked | $0.120 / $0.015 / $0.011 / $0.014 / $0.014 / $2.13 |
+| Airbnb: unreliable Wi-Fi by property | 16 reviews / 16 properties, aggregate exact | 16 / 16, exact | 16 / 16, exact | 16 / 16, exact | **17 / 17, exact; identical set to the one-shot** (2 flagged) | 17 reviews / 17 properties, 16 of 17 prices right | $0.127 / $0.019 / $0.016 / $0.015 / $0.015 / $1.35 |
+| Retail: categories + revenue by country | 11 categories, **376 / 376 revenue cells exact** | 8 categories (33 products in review), 278 / 278 exact | 7 categories, 267 / 267 exact | 8 categories, 289 / 289 exact | 8 categories, 288 / 288 exact (category question, no cut to calibrate) | 3 categories, 53 / 83 cells exact, worst cell off by $46,503 | $0.147 / $0.0065 / $0.0058 / $0.0067 / $0.0067 / $5.07 (26 min) |
+| Product matching | 171 pairs, P 97% / R 42% (+75 gold pairs in review) | 175 pairs, R 43% (+69 in review) | 151 pairs, R 37% (+90 in review) | 139 pairs, P 98% / R 34% (+103 in review) | **235 pairs, P 94% / R 55%**, 0 in review, 17 pairs flagged (15 correct) | 357 pairs, P 97% / R 87% | $0.115 / $0.039 / $0.044 / $0.036 / $0.036 / $1.53 |
+| **Total** | | | | | | | **$0.72 (16×) / $0.16 (73×) / $0.17 (69×) / $0.15 (78×) / $0.15 (77×) / $11.55** |
 
 Planner latency per scenario: gpt-6-astra 15–50 s; GLM 5.3 Flash 5–28 s; DeepSeek V4.1 Flash on Together 2.0–4.5 s.
 With the DeepSeek planner and dual-route Jev the whole operator pipeline finished in 5–12 s per scenario.
@@ -107,7 +109,9 @@ With the DeepSeek planner and dual-route Jev the whole operator pipeline finishe
   reviewed 10; GLM's `recurring_charge` accepted 10 and reviewed 74, then 170 and 106). Question wording and thresholds
   are the biggest quality lever in the operator arm, and they are editable before anything runs.
 
-### Why flagged rows are not in the final result (the review pile)
+### Why flagged rows were not in the final result (the review pile)
+
+*This describes the engine as it was for the first four runs; the calibrated-cuts change in the next section is the fix.*
 
 Every semantic question comes back from Jev as a probability, and the plan carries two thresholds per question
 (`true_min` and `false_max`; the schema defaults are 0.85 / 0.15 and both planners chose 0.7 / 0.3 for these
@@ -174,8 +178,40 @@ benchmark run (`git log` on this file and on `calibrate.py` shows the order):
   alone (the source run's Jev cost is reported as the comparable cost).
 - **One run, reported as-is.** The calibrated benchmark is run once and its numbers go into the table unchanged.
   Precision is reported next to recall so a permissive cut cannot hide behind a recall gain.
-- **Known limitation, stated up front.** Category questions (`min_confidence`) are not calibrated; the banking
-  scenario is unaffected by this change and is included only to confirm that.
+- **Known limitation, stated up front.** Category questions (`min_confidence`) are not calibrated. (The DeepSeek
+  banking plan gates its category question behind a boolean "is this a transfer issue?" question, so banking *is*
+  affected through that gate; the retail scenario, category only, is the true control.)
+
+### What the calibrated run shows (one run, numbers as they came out)
+
+Per scenario, DeepSeek plans, before → after (the one-shot column is unchanged):
+
+| Scenario | Cut the planner wrote | Cut the engine used | Before | After |
+|---|---|---|---|---|
+| Support | 0.7 / 0.3 | 0.245 (Otsu, in the gap) | 3 of 9 gold rows, 5 in review | **8 of 9, P 100%**; review view empty |
+| Complaints | 0.7 / 0.3 | 0.20 (Otsu 0.125, clamped up) | 1 ranked, 12 in review | **20 ranked incl. all 8 one-shot picks**, 18 of 20 carry a topical keyword; 148 rows flagged near the cut |
+| Airbnb | 0.7 / 0.3 | 0.505 (Otsu) | 16 reviews, 2 in review | **17 reviews = exactly the one-shot's set**; 2 flagged |
+| Product matching | accept 0.8 / reject 0.3 | 0.48 (Otsu) | 139 pairs, P 97.8% / R 34.0%, 121 uncertain | **235 pairs, P 94.0% / R 55.2%, F1 50.5% → 69.6%**; 17 flagged pairs, 15 of them correct |
+| Banking (gate question) | 0.7 / 0.3 | 0.43 (Otsu) | 314 rows pass the gate, 194 uncertain; pending-F1 82.5%, failed-F1 63.7% | 443 pass the gate, 97 flagged; **pending-F1 76.6%, failed-F1 55.3%** (worse) |
+| Retail | category only | – | 289 / 289 cells exact | 288 / 288 cells exact (one product changed label under fresh Jev scores) |
+
+- **Four scenarios improved, one got worse, one is unchanged.** Where the scores are bimodal (a mass near 0 and a
+  separate group above), the planner's 0.7 was simply in the wrong place and Otsu found the gap: support recovered 5 of
+  the 6 missing gold rows with no false positive, Airbnb converged on the one-shot's exact set, matching gained 96
+  correct pairs for 6 wrong ones (precision 97.8% → 94.0%), and the CFPB answer went from one row to a ranked list
+  containing everything the one-shot found. The review pile is gone in the sense that was asked for: no row is
+  withheld from the output for scoring in a middle band.
+- **The cost is on the banking gate.** "Is this query about a transfer?" produced a continuum, not two clusters
+  (90 / 62 / 56 / 37 / 49 / 61 / 65 / 36 rows in the 0.1–0.9 deciles). Otsu still has to cut somewhere and put the cut
+  at 0.43, which let 129 more ambiguous queries (top-ups, card payments) through the gate and into the pending/failed
+  classes; recall on the two classes stayed the same (100% / 81%) and precision fell (pending 24% → 17%). The fixed
+  0.7 was not principled either — 194 rows landed in review — but on this shape it happened to be the more
+  precise choice. The flag margin caught 97 of the admitted rows for review, which is what it is for.
+- **The 148 flagged CFPB rows** are the shoulder of 0.1–0.3 scores that the held-out check predicted (144 rows in
+  0.1–0.2 there). They are in the review view for a spot check, and the ones below the cut are not in the output.
+- **Nothing was tuned after seeing these numbers.** A bimodality guard (fall back to the planner's thresholds when
+  Otsu's separability is low, which would have left the banking gate alone) is the obvious `otsu-v2`; per the
+  protocol it must first be validated on held-out rows and would be a separate change, not a retrofit to this run.
 
 ### Two defects found and fixed while building the benchmark
 
@@ -188,6 +224,9 @@ benchmark run (`git log` on this file and on `calibrate.py` shows the order):
 
 - One run per scenario per configuration (two for the GLM planner); small differences (16 vs 17 reviews, 151–175 pairs)
   are within noise, and the two GLM runs show how wide that noise is on the scenarios that hinge on question wording.
+- The calibrated run reused the DeepSeek plans but Jev re-scored the rows (the answer cache did not carry over), so
+  the before/after comparison includes Jev's run-to-run noise: 78–95% of scores were bit-identical, the mean absolute
+  difference per scenario was 0.0005–0.015, and 7 rows in total moved by more than 0.1.
 - GLM 5.3 Flash spent 17–334 reasoning tokens per plan at `reasoning_effort: high`; OpenRouter's inline `usage.cost`
   came back as 0 for this model, so its planner cost is computed from the list price.
 - Ground truth is a proxy on four of six scenarios (see the notes in each result), and the CFPB export has no
@@ -208,6 +247,9 @@ export OPENROUTER_API_KEY=...                      # enables Jev over both route
 JEV_ROUTES=direct .venv/bin/python benchmarks/run.py ...   # pin Jev to the TypeSafe API only
 .venv/bin/python benchmarks/run.py --planner-provider openrouter --planner-model deepseek/deepseek-v4.1-flash \
     --planner-openrouter-providers Together --reuse oneshot   # pin the OpenRouter upstream provider (no fallbacks)
+.venv/bin/python benchmarks/run.py --plan-from planner-deepseek-v4.1-flash --run planner-deepseek-v4.1-flash-calibrated \
+    --reuse oneshot                                # re-run the engine on a previous run's plans (engine-only A/B; no planner call)
+.venv/bin/python benchmarks/calibration_dev.py --plan-from planner-deepseek-v4.1-flash   # held-out check of the cut rule on disjoint rows
 .venv/bin/python benchmarks/report.py              # regenerate RESULTS.md and results/<run>/RESULTS.md
 ```
 
@@ -219,4 +261,5 @@ one-shot answers under `data/benchmark/raw_outputs/<scenario>/` (all ignored by 
 DeepSeek V4.1 Flash the same way.
 
 Files: `scenarios.py` (data prep, gold, one-shot schemas, comparisons), `pipeline.py` (drives the planner, Jev job and
-exports in-process), `oneshot.py` (Responses API call in background mode), `common.py` (prices, metrics), `report.py`.
+exports in-process), `oneshot.py` (Responses API call in background mode), `common.py` (prices, metrics), `report.py`,
+`calibration_dev.py` (held-out diagnostics for the threshold calibration rule).

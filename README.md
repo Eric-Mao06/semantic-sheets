@@ -77,7 +77,9 @@ cd web && npx tsc -p tsconfig.app.json --noEmit && npm run build
 `benchmarks/` compares the operators (planner + Jev + DuckDB) with handing the same CSV and prompt to `gpt-6-astra`
 (reasoning `high`) in one request, on the six walkthrough scenarios: output quality against gold or agreement
 metrics, token usage, cost and latency. The operators were run with three planners (`gpt-6-astra`, `z-ai/glm-5.3-flash`
-and `deepseek/deepseek-v4.1-flash` via OpenRouter). See [`benchmarks/README.md`](benchmarks/README.md) for the method and findings,
+and `deepseek/deepseek-v4.1-flash` via OpenRouter), plus an engine-only A/B that re-runs the DeepSeek plans with
+score-calibrated cuts (protocol pre-registered and checked on held-out rows before the run). See
+[`benchmarks/README.md`](benchmarks/README.md) for the method and findings,
 [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for the cross-planner summary and `benchmarks/results/<run>/RESULTS.md`
 for every plan, metric and disagreement.
 
@@ -94,7 +96,10 @@ for every plan, metric and disagreement.
    restart-safe chunks with budget, request and deadline guards; partial results are queryable and resumable.
    Exact steps compile to DuckDB SQL over Parquet (`engine/exact.py`).
 4. **Review**: each judgement stores the raw model answer (probabilities, confidence) and status
-   (`ok`, `uncertain`, `missing`); uncertain rows land in a review view; corrections create new immutable
-   result versions that keep the model output.
+   (`ok`, `uncertain`, `missing`). Once a stage is fully scored, boolean and match cuts are calibrated on the
+   observed score distribution (`engine/calibrate.py`: Otsu's threshold, clamped, with a fixed-threshold
+   fallback for tiny inputs), so every row gets an answer; rows within ±0.10 of the cut are flagged in
+   `<question>.near` and listed in the filter's review view while staying in the output. `thresholds.mode: fixed`
+   keeps the classic three-way behaviour. Corrections create new immutable result versions that keep the model output.
 5. **Agents** (`mcp_server.py`): the same services as MCP tools (`datasets_*`, `plans_*`, `jobs_*`,
    `results_*`) with bounded pages and structured error envelopes.

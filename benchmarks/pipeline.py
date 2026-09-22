@@ -121,15 +121,16 @@ def run_pipeline(scenario: Scenario, prep: Prepared, spend_target_usd: float = 5
             "total_usd": round(res.planner["cost"]["usd"] + jev_usd, 6),
         }
         if plan_from is not None:
-            # Same questions on the same rows -> the answer cache serves most of Jev's work, so the measured Jev
-            # spend understates what these scores cost. Report the source run's Jev cost as the comparable figure.
+            # If the answer cache served most of Jev's work (same questions, same rows), the measured Jev spend
+            # understates what these scores cost; fall back to the source run's Jev cost as the comparable figure.
             stages = (res.job.get("progress") or {}).get("stages") or {}
             attempts = sum(int(s.get("inference_attempts") or 0) for s in stages.values())
             hits = int(ju.get("cache_hits") or 0)
             src_jev = (plan_from.get("cost") or {}).get("jev_usd_from_measured_tokens")
-            res.cost["jev_cache_share"] = round(hits / (hits + attempts), 4) if hits + attempts else None
+            share = round(hits / (hits + attempts), 4) if hits + attempts else None
+            res.cost["jev_cache_share"] = share
             res.cost["jev_usd_source_run"] = src_jev
-            res.cost["total_usd_comparable"] = round(res.planner["cost"]["usd"] + max(jev_usd, src_jev or 0.0), 6)
+            res.cost["total_usd_comparable"] = round(res.planner["cost"]["usd"] + ((src_jev or 0.0) if (share or 0) >= 0.5 else jev_usd), 6)
     except ServiceError as e:
         res.error = f"{e.code}: {e.message} {e.details or ''}"[:2000]
     except Exception as e:  # noqa: BLE001
@@ -149,8 +150,9 @@ def _remap_plan(meta: dict[str, Any], datasets: dict[str, dict[str, Any]]) -> di
 
     plan["source"] = fresh(plan["source"]["dataset_id"])
     for step in plan["steps"]:
-        if step.get("op") == "semantic_match":
-            step["right"] = {"dataset_id": fresh(step["right"]["dataset_id"])["dataset_id"]}
+        right = step.get("right")
+        if isinstance(right, dict) and "dataset_id" in right:  # semantic_match, or a join against another table
+            step["right"] = {"dataset_id": fresh(right["dataset_id"])["dataset_id"]}
     return plan
 
 
