@@ -9,6 +9,8 @@ type Props = {
   dataVersion: number;
   editable: Set<string>;
   pendingEdits: Map<string, unknown>;
+  /** Touch layout: taller rows, no row-marker gutter or frozen column, narrower text columns. */
+  compact?: boolean;
   onCellClick: (displayIndex: number, column: ColumnInfo) => void;
   onEdit: (rowId: number, column: string, value: unknown) => void;
 };
@@ -27,27 +29,27 @@ const STATUS_THEME: Record<string, Partial<Theme>> = {
   skipped: { textDark: "#9aa3ad", bgCell: "#f6f7f9" },
 };
 
-function widthFor(c: ColumnInfo): number {
-  const header = Math.min(260, 24 + c.name.length * 7.2); // wide enough to read the header
-  if (c.name === "_row_id") return 70;
+function widthFor(c: ColumnInfo, compact: boolean): number {
+  const header = Math.min(compact ? 200 : 260, 24 + c.name.length * 7.2); // wide enough to read the header
+  if (c.name === "_row_id") return compact ? 60 : 70;
   if (c.name.endsWith(".status")) return Math.max(96, header);
   if (c.name.endsWith(".score") || c.name.endsWith(".confidence")) return Math.max(92, header);
-  if (c.type === "integer" || c.type === "double") return Math.max(110, header);
+  if (c.type === "integer" || c.type === "double") return Math.max(compact ? 96 : 110, header);
   if (c.type === "boolean") return Math.max(90, header);
   if (c.type === "date" || c.type === "timestamp") return Math.max(120, header);
-  if (c.role === "semantic" || c.name.endsWith(".value")) return Math.max(170, header);
-  return 300;
+  if (c.role === "semantic" || c.name.endsWith(".value")) return Math.max(compact ? 150 : 170, header);
+  return compact ? 220 : 300;
 }
 
-export default function Grid({ controller, columns, dataVersion, editable, pendingEdits, onCellClick, onEdit }: Props) {
+export default function Grid({ controller, columns, dataVersion, editable, pendingEdits, compact = false, onCellClick, onEdit }: Props) {
   const ref = useRef<DataEditorRef>(null);
   const [widths, setWidths] = useState<Record<string, number>>({});
   const lastRegion = useRef<Rectangle | null>(null);
   const lastY = useRef(0);
 
   const gridColumns = useMemo<GridColumn[]>(
-    () => columns.map((c) => ({ id: c.name, title: c.name, width: widths[c.name] ?? widthFor(c), themeOverride: c.role === "semantic" || c.name.includes(".") ? { bgHeader: "#eef3ff" } : undefined })),
-    [columns, widths],
+    () => columns.map((c) => ({ id: c.name, title: c.name, width: widths[c.name] ?? widthFor(c, compact), themeOverride: c.role === "semantic" || c.name.includes(".") ? { bgHeader: "#eef3ff" } : undefined })),
+    [columns, widths, compact],
   );
 
   const rows = controller.rowCount();
@@ -141,10 +143,10 @@ export default function Grid({ controller, columns, dataVersion, editable, pendi
       }}
       onCellEdited={onCellEdited}
       onColumnResize={(col, w) => setWidths((s) => ({ ...s, [col.id ?? col.title]: w }))}
-      rowMarkers="number"
-      rowHeight={32}
-      headerHeight={34}
-      freezeColumns={1}
+      rowMarkers={compact ? "none" : "number"}
+      rowHeight={compact ? 40 : 32}
+      headerHeight={compact ? 38 : 34}
+      freezeColumns={compact ? 0 : 1}
       smoothScrollX
       smoothScrollY
       getCellsForSelection={(sel) => {

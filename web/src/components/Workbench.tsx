@@ -8,12 +8,18 @@ import PlanPanel, { type Limits } from "./PlanPanel";
 import QuickFilter, { type LocalFilterResult } from "./QuickFilter";
 import Versions from "./Versions";
 import type { Preview } from "./Landing";
+import { useIsMobile } from "../hooks/useMediaQuery";
 
 type Props = { dataset: DatasetInfo; workspace: WorkspaceInfo; initialPrompt?: string; note?: string; preview?: Preview | null; onBack: () => void; onWorkspaceRefresh: () => void };
 
 type SideTab = "plan" | "inspect" | "versions";
+/** On small screens the table and the side panel are shown one at a time and switched with the bottom navigation. */
+type MobilePane = "table" | "panel";
 
 export default function Workbench({ dataset, workspace, initialPrompt, note, preview, onBack, onWorkspaceRefresh }: Props) {
+  const isMobile = useIsMobile();
+  const [mobilePane, setMobilePane] = useState<MobilePane>("table");
+  const lastTap = useRef<{ row: number; col: string } | null>(null);
   const [activeRv, setActiveRv] = useState<string | null>(null);
   const [result, setResult] = useState<ResultDescribe | null>(null);
   const [step, setStep] = useState<string>("source");
@@ -110,11 +116,17 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
   }, [activeRv, result, step, localFilter?.rowIds]);
 
   // ---- planning -------------------------------------------------------------------------------
+  const openPanel = useCallback((tab: SideTab) => {
+    setSideTab(tab);
+    setMobilePane("panel");
+  }, []);
+
   const compile = async () => {
     if (!prompt.trim()) return;
     setCompiling(true);
     setCompileError(null);
     setSideTab("plan");
+    (document.activeElement as HTMLElement | null)?.blur?.(); // dismiss the on-screen keyboard while planning
     try {
       const r = await api.compile(dataset.dataset_id, dataset.version_id, prompt, plan);
       setPlan(r.plan);
@@ -125,6 +137,8 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
       setCompileError((e as Error).message);
     } finally {
       setCompiling(false);
+      // The plan (or the planner error) lives in the side panel, which is a separate pane on phones.
+      if (isMobile) setMobilePane("panel");
     }
   };
 
@@ -197,6 +211,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
       setActiveRv(j.result_version_id);
       setJobs((list) => [j, ...list.filter((x) => x.job_id !== j.job_id)]);
       attachJob(j);
+      setMobilePane("table"); // watch rows fill in as chunks commit
     } catch (e) {
       showToast(`Could not start job: ${(e as Error).message}`);
     }
@@ -264,12 +279,30 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
   const isRunning = job && (job.state === "queued" || job.state === "running");
   const budgetLeft = Math.max(0, wsInfo.budget_usd - wsInfo.spent_usd);
 
+  const onCellClick = (idx: number, col: ColumnInfo) => {
+    const row = controller.getRow(idx) ?? null;
+    setSelected({ row, column: col });
+    if (!isMobile) {
+      setSideTab("inspect");
+      return;
+    }
+    // Phones: the first tap selects and shows the inspect chip; tapping the same cell again opens the Inspector.
+    const key = { row: idx, col: col.name };
+    if (lastTap.current && lastTap.current.row === key.row && lastTap.current.col === key.col) openPanel("inspect");
+    lastTap.current = key;
+  };
+
+  const showSide = !isMobile || mobilePane === "panel";
+  const showTable = !isMobile || mobilePane === "table";
+
   return (
-    <div className="workbench">
+    <div className={"workbench" + (isMobile ? " is-mobile" : "")}>
       <div className="topbar">
-        <button className="btn small" onClick={onBack}>← Datasets</button>
-        <div>
-          <div className="title">{dataset.name}</div>
+        <button className="btn small" onClick={onBack} aria-label="Back to datasets">
+          ← <span className="desktop-only">Datasets</span>
+        </button>
+        <div className="titlebox">
+          <div className="title" title={dataset.name}>{dataset.name}</div>
           <div className="sub">
             {dataset.row_count.toLocaleString()} rows · {dataset.column_count} columns · v{dataset.version_no}
             {dataset.import_report?.rejected_rows ? ` · ${dataset.import_report.rejected_rows} rejected rows` : ""}
@@ -277,20 +310,22 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
           </div>
         </div>
         <span className="grow" />
-        <div className="budget">
+        <div className="budget desktop-only">
           workspace spend <b>${wsInfo.spent_usd.toFixed(4)}</b> of ${wsInfo.budget_usd.toFixed(2)} · Jev {wsInfo.model} · planner {wsInfo.planner_model}
         </div>
-        <a className="btn small" href="/mcp" onClick={(e) => { e.preventDefault(); showToast("MCP endpoint: POST /mcp (Streamable HTTP) with the same bearer token."); }}>MCP</a>
+        <a className="btn small desktop-only" href="/mcp" onClick={(e) => { e.preventDefault(); showToast("MCP endpoint: POST /mcp (Streamable HTTP) with the same bearer token."); }}>MCP</a>
       </div>
 
       <div className="commandbar">
         <input
           type="text"
-          placeholder="Describe an operation… e.g. “Find customers trying to cancel an order because they cannot afford it, and rate how urgent each message is”"
+          placeholder={isMobile ? "Describe an operation… e.g. “Flag urgent cancellations”" : "Describe an operation… e.g. “Find customers trying to cancel an order because they cannot afford it, and rate how urgent each message is”"}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !compiling && compile()}
           disabled={compiling}
+          enterKeyHint="go"
+          autoCapitalize="sentences"
         />
         <button className="btn primary" onClick={compile} disabled={compiling || !prompt.trim()}>
           {compiling ? <span className="row"><span className="spinner" /> Planning…</span> : plan ? "Refine plan" : "Plan"}
@@ -298,7 +333,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
       </div>
 
       <div className="main">
-        <div className="gridarea">
+        <div className="gridarea" hidden={!showTable}>
           <div className="steptabs">
             <span className={"tab" + (step === "source" ? " active" : "")} onClick={() => { userPickedStep.current = true; setLocalFilter(null); setStep("source"); }}>source</span>
             {result?.job_id &&
@@ -335,15 +370,24 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
               </button>
             )}
             {activeRv && columns.length > 0 ? (
-              <Grid controller={controller} columns={columns} dataVersion={dataVersion} editable={editable} pendingEdits={pendingEdits} onCellClick={(idx, col) => { setSelected({ row: controller.getRow(idx) ?? null, column: col }); setSideTab("inspect"); }} onEdit={(rowId, column, value) => void correct(rowId, column, value, "inline edit")} />
+              <Grid controller={controller} columns={columns} dataVersion={dataVersion} editable={editable} pendingEdits={pendingEdits} compact={isMobile} onCellClick={onCellClick} onEdit={(rowId, column, value) => void correct(rowId, column, value, "inline edit")} />
             ) : (
               <div className="overlay"><span className="spinner" />&nbsp; loading view…</div>
             )}
             {meta.error && <div className="overlay"><div className="error">{meta.error}</div></div>}
+            {isMobile && selected.row && selected.column && (
+              <div className="cellchip">
+                <span className="mono">{selected.column.name}</span>
+                <span className="muted">row {selected.row._row_id}</span>
+                <span className="grow" />
+                <button className="btn small primary" onClick={() => openPanel("inspect")}>Inspect</button>
+                <button className="btn small ghost" aria-label="Dismiss" onClick={() => { setSelected({ row: null, column: null }); lastTap.current = null; }}>✕</button>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="side">
+        <div className="side" hidden={!showSide}>
           <div className="tabs">
             <span className={"tab" + (sideTab === "plan" ? " active" : "")} onClick={() => setSideTab("plan")}>Operation</span>
             <span className={"tab" + (sideTab === "inspect" ? " active" : "")} onClick={() => setSideTab("inspect")}>Inspect</span>
@@ -359,7 +403,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
             <Inspector rv={activeRv} step={step} row={selected.row} column={selected.column} semanticStep={semanticStepForColumn(selected.column).stepId} questions={semanticStepForColumn(selected.column).questions} onCorrect={correct} />
           )}
           {sideTab === "versions" && (
-            <Versions rv={result?.job_id ? activeRv : null} activeRv={activeRv} jobs={jobs} onSelect={(rv) => { userPickedStep.current = false; setLocalFilter(null); setActiveRv(rv); setJob(jobs.find((j) => j.result_version_id === rv) ?? null); }} onExport={doExport} exportInfo={exportInfo} />
+            <Versions rv={result?.job_id ? activeRv : null} activeRv={activeRv} jobs={jobs} onSelect={(rv) => { userPickedStep.current = false; setLocalFilter(null); setActiveRv(rv); setJob(jobs.find((j) => j.result_version_id === rv) ?? null); setMobilePane("table"); }} onExport={doExport} exportInfo={exportInfo} />
           )}
         </div>
       </div>
@@ -382,8 +426,28 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
           <span>{semanticStep ? "" : "No job running."} {meta.loading ? "loading…" : ""} cache {controller.cacheStats().blocks} blocks · {(controller.cacheStats().bytes / 1024).toFixed(0)} KB</span>
         )}
         <span className="grow" />
+        {isMobile && (
+          <span>spend <b>${wsInfo.spent_usd.toFixed(4)}</b> of ${wsInfo.budget_usd.toFixed(2)}</span>
+        )}
         {dataset.retention_expires_at && <span>retained until {new Date(dataset.retention_expires_at * 1000).toLocaleDateString()}</span>}
       </div>
+
+      {isMobile && (
+        <nav className="bottomnav" aria-label="Workbench sections">
+          <button className={mobilePane === "table" ? "active" : ""} onClick={() => setMobilePane("table")}>
+            Table{isRunning && <span className="dot accent" aria-label="job running" />}
+          </button>
+          <button className={mobilePane === "panel" && sideTab === "plan" ? "active" : ""} onClick={() => openPanel("plan")}>
+            Operation{(plan || compileError) && <span className={"dot" + (compileError ? " bad" : "")} />}
+          </button>
+          <button className={mobilePane === "panel" && sideTab === "inspect" ? "active" : ""} onClick={() => openPanel("inspect")}>
+            Inspect{selected.row && <span className="dot" />}
+          </button>
+          <button className={mobilePane === "panel" && sideTab === "versions" ? "active" : ""} onClick={() => openPanel("versions")}>
+            Versions
+          </button>
+        </nav>
+      )}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

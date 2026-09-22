@@ -172,15 +172,15 @@ export default function PlanPanel({ plan, validation, validating, validationErro
       <details>
         <summary>Job limits (preauthorized budget guard)</summary>
         <div className="limits" style={{ marginTop: 6 }}>
-          <label>max source rows<input type="number" value={limits.max_source_rows} onChange={(e) => onLimitsChange({ ...limits, max_source_rows: Number(e.target.value) })} /></label>
-          <label>spend target (USD)<input type="number" step="0.05" value={limits.spend_target_usd} onChange={(e) => onLimitsChange({ ...limits, spend_target_usd: Number(e.target.value) })} /></label>
-          <label>max provider requests<input type="number" value={limits.max_provider_requests} onChange={(e) => onLimitsChange({ ...limits, max_provider_requests: Number(e.target.value) })} /></label>
-          <label>deadline (seconds)<input type="number" value={limits.deadline_seconds} onChange={(e) => onLimitsChange({ ...limits, deadline_seconds: Number(e.target.value) })} /></label>
-          <label>rows per Jev request<input type="number" min={1} max={50} value={limits.rows_per_request ?? 10} onChange={(e) => onLimitsChange({ ...limits, rows_per_request: Number(e.target.value) })} /></label>
+          <label>max source rows<input type="number" inputMode="decimal" value={limits.max_source_rows} onChange={(e) => onLimitsChange({ ...limits, max_source_rows: Number(e.target.value) })} /></label>
+          <label>spend target (USD)<input type="number" inputMode="decimal" step="0.05" value={limits.spend_target_usd} onChange={(e) => onLimitsChange({ ...limits, spend_target_usd: Number(e.target.value) })} /></label>
+          <label>max provider requests<input type="number" inputMode="decimal" value={limits.max_provider_requests} onChange={(e) => onLimitsChange({ ...limits, max_provider_requests: Number(e.target.value) })} /></label>
+          <label>deadline (seconds)<input type="number" inputMode="decimal" value={limits.deadline_seconds} onChange={(e) => onLimitsChange({ ...limits, deadline_seconds: Number(e.target.value) })} /></label>
+          <label>rows per Jev request<input type="number" inputMode="decimal" min={1} max={50} value={limits.rows_per_request ?? 10} onChange={(e) => onLimitsChange({ ...limits, rows_per_request: Number(e.target.value) })} /></label>
         </div>
       </details>
 
-      <div className="row">
+      <div className="row runbar">
         {running ? (
           <button className="btn danger" onClick={onCancel}>Cancel job</button>
         ) : (
@@ -238,7 +238,7 @@ function StepEditor({ step, index, inputs, onChange, onRemove, isOutput, onMakeO
           {step.questions.map((q, qi) => (
             <QuestionEditor key={qi} q={q} onChange={(nq) => onChange({ ...step, questions: step.questions.map((x, j) => (j === qi ? nq : x)) })} onRemove={() => onChange({ ...step, questions: step.questions.filter((_, j) => j !== qi) })} />
           ))}
-          <div className="row">
+          <div className="row wrap">
             <button className="btn small" onClick={() => onChange({ ...step, questions: [...step.questions, { name: `flag_${step.questions.length + 1}`, kind: "boolean", instruction: "Does the text …?", thresholds: { true_min: 0.7, false_max: 0.3 } }] })}>+ yes/no</button>
             <button className="btn small" onClick={() => onChange({ ...step, questions: [...step.questions, { name: `label_${step.questions.length + 1}`, kind: "category", instruction: "Which category best describes the text?", options: { a: "…", b: "…", other: "none of the above" } }] })}>+ category</button>
             <button className="btn small" onClick={() => onChange({ ...step, questions: [...step.questions, { name: `score_${step.questions.length + 1}`, kind: "score", instruction: "How severe is …?", levels: ["None", "Minor", "Major", "Critical"] }] })}>+ score</button>
@@ -251,7 +251,7 @@ function StepEditor({ step, index, inputs, onChange, onRemove, isOutput, onMakeO
           <div className="kv">
             <label>keep rows where</label>
             {simple && raw === null ? (
-              <div className="row">
+              <div className="row wrap">
                 <select value={simple.column} onChange={(e) => onChange({ ...step, where: { op: simple.op, args: [{ column: e.target.value }, ...(simple.op.endsWith("null") ? [] : [{ literal: simple.literal }])] } })}>
                   {[...new Set([simple.column, ...inputs])].map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -290,7 +290,7 @@ function StepEditor({ step, index, inputs, onChange, onRemove, isOutput, onMakeO
           <label>order by</label>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {step.by.map((k, ki) => (
-              <div className="row" key={ki}>
+              <div className="row wrap" key={ki}>
                 <select value={k.column} onChange={(e) => onChange({ ...step, by: step.by.map((x, j) => (j === ki ? { ...x, column: e.target.value } : x)) })}>
                   {[...new Set([k.column, ...inputs])].map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -324,7 +324,7 @@ function StepEditor({ step, index, inputs, onChange, onRemove, isOutput, onMakeO
           <label>metrics</label>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {step.metrics.map((m, mi) => (
-              <div className="row" key={mi}>
+              <div className="row wrap" key={mi}>
                 <input type="text" value={m.name} style={{ width: 90 }} onChange={(e) => onChange({ ...step, metrics: step.metrics.map((x, j) => (j === mi ? { ...x, name: e.target.value } : x)) })} />
                 <select value={m.fn} onChange={(e) => onChange({ ...step, metrics: step.metrics.map((x, j) => (j === mi ? { ...x, fn: e.target.value } : x)) })} style={{ width: "auto" }}>
                   {["count", "count_distinct", "sum", "avg", "min", "max"].map((f) => (
@@ -349,7 +349,7 @@ function StepEditor({ step, index, inputs, onChange, onRemove, isOutput, onMakeO
         </div>
       )}
       {step.op === "limit" && (
-        <div className="kv"><label>rows</label><input type="number" value={step.n} onChange={(e) => onChange({ ...step, n: Number(e.target.value) })} /></div>
+        <div className="kv"><label>rows</label><input type="number" inputMode="decimal" value={step.n} onChange={(e) => onChange({ ...step, n: Number(e.target.value) })} /></div>
       )}
       {step.op === "semantic_match" && (
         <div className="kv">
@@ -357,9 +357,9 @@ function StepEditor({ step, index, inputs, onChange, onRemove, isOutput, onMakeO
           <textarea value={step.instruction} onChange={(e) => onChange({ ...step, instruction: e.target.value })} />
           <label>left columns</label><div className="mono">{step.left_columns.join(", ")}</div>
           <label>right columns</label><div className="mono">{step.right_columns.join(", ")}</div>
-          <label>candidates / row</label><input type="number" min={1} max={5} value={step.candidates_per_row ?? 5} onChange={(e) => onChange({ ...step, candidates_per_row: Number(e.target.value) })} />
-          <label>accept ≥</label><input type="number" step={0.05} min={0} max={1} value={step.accept_min ?? 0.8} onChange={(e) => onChange({ ...step, accept_min: Number(e.target.value) })} />
-          <label>reject ≤</label><input type="number" step={0.05} min={0} max={1} value={step.reject_max ?? 0.3} onChange={(e) => onChange({ ...step, reject_max: Number(e.target.value) })} />
+          <label>candidates / row</label><input type="number" inputMode="decimal" min={1} max={5} value={step.candidates_per_row ?? 5} onChange={(e) => onChange({ ...step, candidates_per_row: Number(e.target.value) })} />
+          <label>accept ≥</label><input type="number" inputMode="decimal" step={0.05} min={0} max={1} value={step.accept_min ?? 0.8} onChange={(e) => onChange({ ...step, accept_min: Number(e.target.value) })} />
+          <label>reject ≤</label><input type="number" inputMode="decimal" step={0.05} min={0} max={1} value={step.reject_max ?? 0.3} onChange={(e) => onChange({ ...step, reject_max: Number(e.target.value) })} />
         </div>
       )}
       {(step.op === "project" || step.op === "compute" || step.op === "join" || step.op === "distinct") && (
@@ -410,7 +410,7 @@ function QuestionEditor({ q, onChange, onRemove }: { q: Question; onChange: (q: 
       {q.kind === "category" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {Object.entries(q.options ?? {}).map(([label, desc]) => (
-            <div className="row" key={label}>
+            <div className="row wrap" key={label}>
               <input type="text" value={label} style={{ width: 130 }} onChange={(e) => {
                 const entries = Object.entries(q.options ?? {}).map(([k, v]) => (k === label ? [e.target.value.replace(/[^A-Za-z0-9_ -]/g, "_"), v] : [k, v]));
                 onChange({ ...q, options: Object.fromEntries(entries) });
@@ -426,7 +426,7 @@ function QuestionEditor({ q, onChange, onRemove }: { q: Question; onChange: (q: 
           <div className="row">
             <button className="btn small" onClick={() => onChange({ ...q, options: { ...q.options, [`label_${Object.keys(q.options ?? {}).length + 1}`]: "" } })}>+ label</button>
             <span className="muted" style={{ fontSize: 12 }}>min confidence</span>
-            <input type="number" step={0.05} min={0} max={1} value={q.min_confidence ?? 0} style={{ width: 70 }} onChange={(e) => onChange({ ...q, min_confidence: Number(e.target.value) })} />
+            <input type="number" inputMode="decimal" step={0.05} min={0} max={1} value={q.min_confidence ?? 0} style={{ width: 70 }} onChange={(e) => onChange({ ...q, min_confidence: Number(e.target.value) })} />
           </div>
         </div>
       )}

@@ -37,6 +37,7 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
   const [includeNull, setIncludeNull] = useState(false);
   const [sort, setSort] = useState<"none" | "asc" | "desc">("none");
   const [active, setActive] = useState(false);
+  const [open, setOpen] = useState(false); // phones only: the controls are collapsed behind a toggle
   const reqId = useRef(0);
   const pending = useRef(new Map<number, (m: { count: number; rowIds: ArrayBuffer; ms: number }) => void>());
 
@@ -126,69 +127,76 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
   const step_ = loaded?.kind === "number" ? (loaded.max - loaded.min) / 100 || 0.01 : 1;
 
   return (
-    <div className="quickfilter">
-      <span className="muted">Quick filter</span>
-      <select value={column} onChange={(e) => setColumn(e.target.value)}>
-        <option value="">choose column…</option>
-        {candidates.map((c) => (
-          <option key={c.name} value={c.name}>
-            {c.name} ({c.type})
-          </option>
-        ))}
-      </select>
-      {loading && <span className="spinner" />}
-      {loaded?.kind === "number" && (
-        <>
-          <label className="row">
-            min
-            <input type="range" min={loaded.min} max={loaded.max} step={step_} value={min ?? loaded.min} onChange={(e) => setMinText(e.target.value)} />
-            <input type="text" style={{ width: 64 }} value={minText} onChange={(e) => setMinText(e.target.value)} />
-          </label>
-          <label className="row">
-            max
-            <input type="range" min={loaded.min} max={loaded.max} step={step_} value={max ?? loaded.max} onChange={(e) => setMaxText(e.target.value)} />
-            <input type="text" style={{ width: 64 }} value={maxText} onChange={(e) => setMaxText(e.target.value)} />
-          </label>
-        </>
-      )}
-      {loaded?.kind === "label" && (
-        <div className="chips">
-          {loaded.labels.slice(0, 40).map((l, i) => (
-            <span
-              key={l}
-              className="chip"
-              style={{ cursor: "pointer", opacity: labels.has(i) ? 1 : 0.45, border: labels.has(i) ? "1px solid var(--accent)" : "1px solid transparent" }}
-              onClick={() =>
-                setLabels((s) => {
-                  const n = new Set(s);
-                  if (n.has(i)) n.delete(i);
-                  else n.add(i);
-                  return n;
-                })
-              }
-            >
-              {l}
-            </span>
+    <div className={"quickfilter" + (open ? " open" : "")}>
+      <button className="qf-toggle mobile-only" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        Quick filter{active ? <span className="badge accent">on</span> : null}
+        <span className="grow" />
+        <span className="muted">{open ? "▴" : "▾"}</span>
+      </button>
+      <div className="qf-body">
+        <span className="muted desktop-only">Quick filter</span>
+        <select value={column} onChange={(e) => setColumn(e.target.value)}>
+          <option value="">choose column…</option>
+          {candidates.map((c) => (
+            <option key={c.name} value={c.name}>
+              {c.name} ({c.type})
+            </option>
           ))}
-          {loaded.labels.length > 40 && <span className="muted">+{loaded.labels.length - 40} more</span>}
-        </div>
-      )}
-      {loaded && (
-        <>
-          <label className="row muted">
-            <input type="checkbox" checked={includeNull} onChange={(e) => setIncludeNull(e.target.checked)} /> include empty
-          </label>
-          <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
-            <option value="none">no sort</option>
-            <option value="desc">sort desc</option>
-            <option value="asc">sort asc</option>
-          </select>
-          <button className="btn small primary" onClick={apply}>Apply locally</button>
-          {active && <button className="btn small" onClick={clear}>Clear</button>}
-          <span className="muted">{loaded.rows.toLocaleString()} rows in worker</span>
-        </>
-      )}
-      {error && <span className="muted" style={{ color: "var(--warn)" }}>{error}</span>}
+        </select>
+        {loading && <span className="spinner" />}
+        {loaded?.kind === "number" && (
+          <>
+            <label className="row qf-range">
+              min
+              <input type="range" min={loaded.min} max={loaded.max} step={step_} value={min ?? loaded.min} onChange={(e) => setMinText(e.target.value)} />
+              <input type="text" inputMode="decimal" style={{ width: 64 }} value={minText} onChange={(e) => setMinText(e.target.value)} />
+            </label>
+            <label className="row qf-range">
+              max
+              <input type="range" min={loaded.min} max={loaded.max} step={step_} value={max ?? loaded.max} onChange={(e) => setMaxText(e.target.value)} />
+              <input type="text" inputMode="decimal" style={{ width: 64 }} value={maxText} onChange={(e) => setMaxText(e.target.value)} />
+            </label>
+          </>
+        )}
+        {loaded?.kind === "label" && (
+          <div className="chips">
+            {loaded.labels.slice(0, 40).map((l, i) => (
+              <span
+                key={l}
+                className="chip"
+                style={{ cursor: "pointer", opacity: labels.has(i) ? 1 : 0.45, border: labels.has(i) ? "1px solid var(--accent)" : "1px solid transparent" }}
+                onClick={() =>
+                  setLabels((s) => {
+                    const n = new Set(s);
+                    if (n.has(i)) n.delete(i);
+                    else n.add(i);
+                    return n;
+                  })
+                }
+              >
+                {l}
+              </span>
+            ))}
+            {loaded.labels.length > 40 && <span className="muted">+{loaded.labels.length - 40} more</span>}
+          </div>
+        )}
+        {loaded && (
+          <>
+            <label className="row muted">
+              <input type="checkbox" checked={includeNull} onChange={(e) => setIncludeNull(e.target.checked)} /> include empty
+            </label>
+            <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+              <option value="none">no sort</option>
+              <option value="desc">sort desc</option>
+              <option value="asc">sort asc</option>
+            </select>
+            <button className="btn small primary" onClick={apply}>Apply locally</button>
+            {active && <button className="btn small" onClick={clear}>Clear</button>}
+            <span className="muted">{loaded.rows.toLocaleString()} rows in worker</span>
+          </>
+        )}
+        {error && <span className="muted" style={{ color: "var(--warn)" }}>{error}</span>}
+      </div>
     </div>
   );
 }
