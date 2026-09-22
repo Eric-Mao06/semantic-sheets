@@ -12,7 +12,7 @@ sys.path.insert(0, str(HERE))
 from common import ASTRA_PRICES, JEV_PRICE_PER_MTOK_INPUT, LONG_CONTEXT_INPUT_TOKENS, PLANNER_PRICES, RESULTS_DIR  # noqa: E402
 
 ORDER = ["support_requests", "banking_queries", "cfpb_complaints", "airbnb_reviews", "retail_gift_categories", "wdc_product_matching"]
-RUN_ORDER = ["planner-gpt-6-astra", "planner-glm-5.3-flash-run1", "planner-glm-5.3-flash"]
+RUN_ORDER = ["planner-gpt-6-astra", "planner-glm-5.3-flash-run1", "planner-glm-5.3-flash", "planner-deepseek-v4.1-flash"]
 
 
 def _f(x: Any, nd: int = 2, pct: bool = False) -> str:
@@ -135,6 +135,12 @@ def _planner_desc(results: list[dict[str, Any]]) -> tuple[str, str, str]:
     model = cfg.get("model") or ((results[0]["pipeline"].get("planner") or {}).get("model") if results else None) or "gpt-6-astra"
     provider = cfg.get("provider") or "openai"
     effort = cfg.get("reasoning_effort") or "high"
+    served = sorted({str(((r["pipeline"].get("planner") or {}).get("usage") or {}).get("served_by")) for r in results} - {"None"})
+    pinned = cfg.get("openrouter_providers") or []
+    if pinned:
+        provider += f" pinned to {', '.join(pinned)}" + (f" (served by {', '.join(served)})" if served and served != pinned else "")
+    elif served:
+        provider += f" (served by {', '.join(served)})"
     return model, provider, effort
 
 
@@ -142,9 +148,11 @@ def _price_line() -> str:
     p = ASTRA_PRICES["short"]
     pl = ASTRA_PRICES["long"]
     glm = PLANNER_PRICES["z-ai/glm-5.3-flash"]
+    ds = PLANNER_PRICES["deepseek/deepseek-v4.1-flash"]
     return (f"Prices used (list, 2026-09-21): gpt-6-astra ${p['input']:.2f} / M input, ${p['cached_input']:.2f} / M cached input, ${p['output']:.2f} / M output "
             f"(reasoning tokens bill as output; requests over {LONG_CONTEXT_INPUT_TOKENS:,} input tokens reprice to ${pl['input']:.2f} / ${pl['output']:.2f}); "
             f"z-ai/glm-5.3-flash via OpenRouter ${glm['input']:.2f} / M input, ${glm['output']:.2f} / M output; "
+            f"deepseek/deepseek-v4.1-flash via OpenRouter (Together) ${ds['input']:.2f} / M input, ${ds['output']:.2f} / M output, using OpenRouter's reported cost when it returns one; "
             f"jev-1.13.0 ${JEV_PRICE_PER_MTOK_INPUT} / M input, output free. Costs are computed from the token usage each API reported.\n")
 
 

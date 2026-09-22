@@ -27,6 +27,7 @@ LONG_CONTEXT_INPUT_TOKENS = 272_000
 PLANNER_PRICES = {
     "gpt-6-astra": ASTRA_PRICES["short"],
     "z-ai/glm-5.3-flash": {"input": 0.15, "cached_input": 0.15, "output": 0.50},
+    "deepseek/deepseek-v4.1-flash": {"input": 0.30, "cached_input": 0.30, "output": 1.20},  # Together endpoint
 }
 
 # TypeSafe Jev 1.13: charged per input token, output tokens free (docs.typesafe.ai/models, 2026-09-21).

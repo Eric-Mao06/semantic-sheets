@@ -1,0 +1,671 @@
+{
+  "run": "planner-deepseek-v4.1-flash",
+  "planner_config": {
+    "provider": "openrouter",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "reasoning_effort": "high",
+    "openrouter_providers": [
+      "Together"
+    ]
+  },
+  "scenario": "banking_queries",
+  "title": "Banking queries: separate transfer problems",
+  "prompt": "Separate pending transfers, failed transfers, and transfers sent to the wrong account.",
+  "inputs": [
+    {
+      "name": "banking_queries",
+      "rows": 3080,
+      "columns": [
+        "row_id",
+        "text"
+      ],
+      "approx_tokens": 46300
+    }
+  ],
+  "notes": [
+    "Gold classes come from the BANKING77 intents (removed from both inputs). Strict: pending_transfer -> pending; failed_transfer and declined_transfer -> failed; everything else -> other. Lenient additionally counts transfer_timing, balance_not_updated_after_bank_transfer and transfer_not_received_by_recipient as pending (a transfer that has not arrived). BANKING77 has no intent meaning 'sent to the wrong account', so that class is compared between the two approaches only. Queries about pending top-ups, card payments or cash withdrawals are 'other' under both mappings; whether they are 'pending transfers' is a judgement call that the prompt leaves open, and it drives most of the false positives on both sides."
+  ],
+  "pipeline": {
+    "plan": {
+      "plan_version": "1",
+      "source": {
+        "dataset_id": "ds_135002a2d7064a43",
+        "version_id": "v_9117c40b23c440c3"
+      },
+      "model": "jev-1.13.0",
+      "steps": [
+        {
+          "id": "annot_is_transfer",
+          "input": "source",
+          "op": "semantic_annotate",
+          "columns": [
+            "text"
+          ],
+          "questions": [
+            {
+              "name": "is_transfer_issue",
+              "kind": "boolean",
+              "instruction": "Does this customer support message concern a money transfer between accounts that has gone wrong or is being questioned (e.g. a transfer that hasn't arrived, failed, was sent to the wrong account, was duplicated, or is taking too long)? The message may be in any language; judge the meaning, not the exact words.",
+              "criteria": {
+                "true": "The message is about a transfer of funds between accounts that is pending, late, failed, duplicated, misdirected, or otherwise problematic or questioned by the customer. Statements implying a transfer problem count (e.g. 'my money hasn't shown up', 'I sent money to the wrong person', 'the transfer didn't go through').",
+                "false": "The message is about something else entirely, such as card activation or delivery, PIN/password changes, ATM withdrawals or cash dispense errors, exchange rates on card purchases, account closure, card acceptance, verification of identity, or general card questions."
+              },
+              "thresholds": {
+                "true_min": 0.7,
+                "false_max": 0.3
+              },
+              "options": null,
+              "min_confidence": 0.0,
+              "levels": null
+            }
+          ],
+          "on_missing": "unknown"
+        },
+        {
+          "id": "filter_transfers",
+          "input": "annot_is_transfer",
+          "op": "filter",
+          "where": {
+            "op": "eq",
+            "args": [
+              {
+                "column": "is_transfer_issue.value"
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          "unknown_policy": "separate"
+        },
+        {
+          "id": "annot_transfer_type",
+          "input": "filter_transfers",
+          "op": "semantic_annotate",
+          "columns": [
+            "text"
+          ],
+          "questions": [
+            {
+              "name": "transfer_type",
+              "kind": "category",
+              "instruction": "Classify the transfer problem described in this customer support message by its main issue type. The message may be in any language; classify by meaning. Choose exactly one option.",
+              "criteria": null,
+              "thresholds": {
+                "true_min": 0.85,
+                "false_max": 0.15
+              },
+              "options": {
+                "pending_transfer": "The transfer is still in progress, delayed, slow, or not yet arrived but not reported as failed or misdirected (e.g. 'how long does a transfer take', 'my transfer hasn't shown up yet').",
+                "failed_transfer": "The transfer did not go through, was rejected, declined, cancelled, or errored out (e.g. 'the transfer failed', 'I couldn't send the money').",
+                "wrong_account_transfer": "The transfer was sent to an incorrect or unintended recipient/account, or credited to the wrong account (e.g. 'I sent it to the wrong person', 'the money went to the wrong account').",
+                "other": "None of the above applies clearly, or the message is too vague or ambiguous to determine the transfer issue type."
+              },
+              "min_confidence": 0.0,
+              "levels": null
+            }
+          ],
+          "on_missing": "unknown"
+        },
+        {
+          "id": "group_transfer_types",
+          "input": "annot_transfer_type",
+          "op": "aggregate",
+          "group_by": [
+            "transfer_type.value"
+          ],
+          "metrics": [
+            {
+              "name": "count",
+              "fn": "count",
+              "column": null
+            },
+            {
+              "name": "avg_confidence",
+              "fn": "avg",
+              "column": "transfer_type.confidence"
+            }
+          ]
+        },
+        {
+          "id": "sort_transfer_types",
+          "input": "group_transfer_types",
+          "op": "sort",
+          "by": [
+            {
+              "column": "count",
+              "direction": "desc"
+            }
+          ]
+        }
+      ],
+      "output": "sort_transfer_types",
+      "title": "Separate transfer issues by type",
+      "description": "Filters the support messages down to those about a transfer problem, then classifies each into pending transfer, failed transfer, transfer sent to the wrong account, or other, and groups the results with counts. Edit the category labels/descriptions or the boolean threshold if you want a different balance of recall vs precision."
+    },
+    "planner": {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "reasoning_effort": "high",
+      "latency_ms": 4105,
+      "usage": {
+        "input_tokens": 2460,
+        "output_tokens": 1206,
+        "reasoning_tokens": 228,
+        "cost_usd": 0.001733616,
+        "served_by": "Together",
+        "served_model": "deepseek/deepseek-v4.1-flash"
+      },
+      "attempts": 1,
+      "title": "Separate transfer issues by type",
+      "description": "Filters the support messages down to those about a transfer problem, then classifies each into pending transfer, failed transfer, transfer sent to the wrong account, or other, and groups the results with counts. Edit the category labels/descriptions or the boolean threshold if you want a different balance of recall vs precision.",
+      "cost": {
+        "usd": 0.001734,
+        "source": "provider_reported",
+        "input_tokens": 2460,
+        "output_tokens": 1206,
+        "reasoning_tokens": 228
+      }
+    },
+    "estimate": {
+      "source_rows": 3080,
+      "semantic_rows": 3080,
+      "inference_attempts": 6160,
+      "provider_requests": 616,
+      "input_tokens": 2007852,
+      "estimated_cost_usd": 0.08433,
+      "candidate_pairs": 0,
+      "cache_hits_estimated": 0,
+      "stages": [
+        {
+          "step": "annot_is_transfer",
+          "kind": "annotate",
+          "rows": 3080,
+          "rows_bound": "exact",
+          "questions": 1,
+          "inference_attempts": 3080,
+          "cache_hits_estimated": 0,
+          "requests": 308,
+          "input_tokens": 1016246,
+          "mean_tokens_per_row": 325.9,
+          "estimated_cost_usd": 0.042682
+        },
+        {
+          "step": "annot_transfer_type",
+          "kind": "annotate",
+          "rows": 3080,
+          "rows_bound": "upper_bound",
+          "questions": 1,
+          "inference_attempts": 3080,
+          "cache_hits_estimated": 0,
+          "requests": 308,
+          "input_tokens": 991606,
+          "mean_tokens_per_row": 317.9,
+          "estimated_cost_usd": 0.041647
+        }
+      ],
+      "quota_floor_seconds": 30.8
+    },
+    "job": {
+      "job_id": "job_57a00ffdfe454e59",
+      "state": "succeeded",
+      "terminal_reason": null,
+      "usage": {
+        "input_tokens": 964563,
+        "output_tokens": 85379,
+        "provider_requests": 340,
+        "spent_usd": 0.040512,
+        "reserved_usd": 0.0,
+        "cache_hits": 1,
+        "ambiguous_attempts": 0,
+        "route_requests": {
+          "direct": 192,
+          "openrouter": 148
+        }
+      },
+      "progress": {
+        "stages": {
+          "annot_is_transfer": {
+            "rows_total": 3080,
+            "rows_succeeded": 2886,
+            "rows_uncertain": 194,
+            "rows_missing": 0,
+            "rows_failed": 0,
+            "rows_skipped": 0,
+            "rows_pending": 0,
+            "cache_hits": 1,
+            "inference_attempts": 3079,
+            "provider_requests": 308,
+            "pairs": 0,
+            "chunks_committed": 17,
+            "chunks_total": 17,
+            "rows_beyond_cap": 0,
+            "complete": true
+          },
+          "annot_transfer_type": {
+            "rows_total": 314,
+            "rows_succeeded": 314,
+            "rows_uncertain": 0,
+            "rows_missing": 0,
+            "rows_failed": 0,
+            "rows_skipped": 0,
+            "rows_pending": 0,
+            "cache_hits": 0,
+            "inference_attempts": 314,
+            "provider_requests": 32,
+            "pairs": 0,
+            "chunks_committed": 3,
+            "chunks_total": 3,
+            "rows_beyond_cap": 0,
+            "complete": true
+          }
+        },
+        "rows_examined": 3394,
+        "rows_remaining": 0,
+        "errors": 0
+      },
+      "error_summary": null,
+      "errors": []
+    },
+    "step_rows": {
+      "annot_is_transfer": 3080,
+      "filter_transfers": 314,
+      "annot_transfer_type": 314,
+      "group_transfer_types": 4,
+      "sort_transfer_types": 4
+    },
+    "datasets": {
+      "banking_queries": {
+        "dataset_id": "ds_135002a2d7064a43",
+        "version_id": "v_9117c40b23c440c3",
+        "row_count": 3080
+      }
+    },
+    "timings_seconds": {
+      "import": 0.04,
+      "planner": 4.15,
+      "job": 8.13,
+      "total": 12.41
+    },
+    "cost": {
+      "planner_usd": 0.001734,
+      "jev_usd_from_measured_tokens": 0.040512,
+      "jev_usd_reported_by_job": 0.040512,
+      "jev_input_tokens": 964563,
+      "jev_requests": 340,
+      "jev_cache_hits": 1,
+      "jev_route_requests": {
+        "direct": 192,
+        "openrouter": 148
+      },
+      "total_usd": 0.042246
+    },
+    "error": null
+  },
+  "oneshot": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "status": "completed",
+    "usage": {
+      "input_tokens": 46419,
+      "cached_input_tokens": 0,
+      "output_tokens": 9849,
+      "reasoning_tokens": 8994,
+      "total_tokens": 56268
+    },
+    "cost": {
+      "usd": 0.95664,
+      "tier": "short",
+      "input_tokens": 46419,
+      "cached_input_tokens": 0,
+      "output_tokens": 9849,
+      "reasoning_tokens": 8994,
+      "prices_per_mtok": {
+        "input": 10.0,
+        "cached_input": 1.0,
+        "output": 50.0
+      }
+    },
+    "latency_seconds": 221.0,
+    "input_tokens_estimate": 46532,
+    "response_id": "resp_0cecf2c589f60aaa006ab1333a235087d2a35f41ff19636fd3",
+    "error": null,
+    "raw_text_head": "{\n  \"failed\": [\n    1721, 1723, 1724, 1725, 1728, 1729, 1730, 1732, 1733, 1734,\n    1737, 1738, 1739, 1741, 1742, 1743, 1744, 1745, 1746, 1747,\n    1748, 1749, 1750, 1751, 1753, 1754, 1758, 1760,\n    2161, 2162, 2163, 2164, 2165, 2168, 2170, 2171, 2172, 2174,\n    2177, 2179, 2180, 2181, 2182, 2183, 2184, 2185, 2186, 2187,\n    2188, 2189, 2191, 2192, 2193, 2194, 2195, 2197, 2199, 2200,\n    2281, 22",
+    "output_summary": {
+      "failed": "list[96]",
+      "wrong_account": "list[5]",
+      "pending": "list[106]"
+    }
+  },
+  "comparison": {
+    "gold_notes": [
+      "Gold classes come from the BANKING77 intents (removed from both inputs). Strict: pending_transfer -> pending; failed_transfer and declined_transfer -> failed; everything else -> other. Lenient additionally counts transfer_timing, balance_not_updated_after_bank_transfer and transfer_not_received_by_recipient as pending (a transfer that has not arrived). BANKING77 has no intent meaning 'sent to the wrong account', so that class is compared between the two approaches only. Queries about pending top-ups, card payments or cash withdrawals are 'other' under both mappings; whether they are 'pending transfers' is a judgement call that the prompt leaves open, and it drives most of the false positives on both sides."
+    ],
+    "gold_class_sizes": {
+      "strict": {
+        "other": 2960,
+        "failed": 80,
+        "pending": 40
+      },
+      "lenient": {
+        "other": 2840,
+        "pending": 160,
+        "failed": 80
+      }
+    },
+    "pipeline": {
+      "from_step": "annot_transfer_type",
+      "question": "transfer_type",
+      "raw_labels": {
+        "failed_transfer": 124,
+        "pending_transfer": 165,
+        "other": 20,
+        "wrong_account_transfer": 5
+      },
+      "label_mapping": {
+        "failed_transfer": "failed",
+        "pending_transfer": "pending",
+        "other": "other",
+        "wrong_account_transfer": "wrong_account"
+      },
+      "rows_labeled": 314,
+      "strict": {
+        "macro_f1": 0.5137,
+        "accuracy_on_rows_in_scope": 0.3465,
+        "per_class": {
+          "pending": {
+            "predicted": 165,
+            "gold": 40,
+            "tp": 40,
+            "fp": 125,
+            "fn": 0,
+            "precision": 0.2424,
+            "recall": 1.0,
+            "f1": 0.3902
+          },
+          "failed": {
+            "predicted": 124,
+            "gold": 80,
+            "tp": 65,
+            "fp": 59,
+            "fn": 15,
+            "precision": 0.5242,
+            "recall": 0.8125,
+            "f1": 0.6373
+          }
+        }
+      },
+      "lenient": {
+        "macro_f1": 0.7309,
+        "accuracy_on_rows_in_scope": 0.6067,
+        "per_class": {
+          "pending": {
+            "predicted": 165,
+            "gold": 160,
+            "tp": 134,
+            "fp": 31,
+            "fn": 26,
+            "precision": 0.8121,
+            "recall": 0.8375,
+            "f1": 0.8246
+          },
+          "failed": {
+            "predicted": 124,
+            "gold": 80,
+            "tp": 65,
+            "fp": 59,
+            "fn": 15,
+            "precision": 0.5242,
+            "recall": 0.8125,
+            "f1": 0.6373
+          }
+        }
+      },
+      "false_positive_intents": {
+        "pending": {
+          "Refund_not_showing_up": 16,
+          "pending_top_up": 6,
+          "topping_up_by_card": 4,
+          "cancel_transfer": 3,
+          "reverted_card_payment?": 1,
+          "failed_transfer": 1
+        },
+        "failed": {
+          "beneficiary_not_allowed": 30,
+          "top_up_reverted": 12,
+          "top_up_failed": 8,
+          "pending_top_up": 3,
+          "topping_up_by_card": 3,
+          "fiat_currency_support": 1
+        }
+      },
+      "wrong_account_rows": 5,
+      "wrong_account_intents": {
+        "cancel_transfer": 5
+      }
+    },
+    "oneshot": {
+      "assigned": {
+        "pending": 106,
+        "failed": 96,
+        "wrong_account": 5
+      },
+      "strict": {
+        "macro_f1": 0.6148,
+        "accuracy_on_rows_in_scope": 0.457,
+        "per_class": {
+          "pending": {
+            "predicted": 106,
+            "gold": 40,
+            "tp": 35,
+            "fp": 71,
+            "fn": 5,
+            "precision": 0.3302,
+            "recall": 0.875,
+            "f1": 0.4795
+          },
+          "failed": {
+            "predicted": 96,
+            "gold": 80,
+            "tp": 66,
+            "fp": 30,
+            "fn": 14,
+            "precision": 0.6875,
+            "recall": 0.825,
+            "f1": 0.75
+          }
+        }
+      },
+      "lenient": {
+        "macro_f1": 0.7735,
+        "accuracy_on_rows_in_scope": 0.637,
+        "per_class": {
+          "pending": {
+            "predicted": 106,
+            "gold": 160,
+            "tp": 106,
+            "fp": 0,
+            "fn": 54,
+            "precision": 1.0,
+            "recall": 0.6625,
+            "f1": 0.797
+          },
+          "failed": {
+            "predicted": 96,
+            "gold": 80,
+            "tp": 66,
+            "fp": 30,
+            "fn": 14,
+            "precision": 0.6875,
+            "recall": 0.825,
+            "f1": 0.75
+          }
+        }
+      },
+      "false_positive_intents": {
+        "pending": {},
+        "failed": {
+          "beneficiary_not_allowed": 30
+        }
+      },
+      "wrong_account_rows": 5,
+      "wrong_account_intents": {
+        "cancel_transfer": 5
+      }
+    },
+    "agreement": {
+      "n": 3080,
+      "agreement": 0.9695,
+      "kappa": 0.8007,
+      "wrong_account": {
+        "both": 5,
+        "only_a": 0,
+        "only_b": 0,
+        "jaccard": 1.0
+      }
+    },
+    "examples": {
+      "disagreements": [
+        {
+          "row_id": 247,
+          "text": "There is an incoming payment into my account, but it is deactivated. Will they still be processed?",
+          "intent": "fiat_currency_support",
+          "pipeline": "failed",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 642,
+          "text": "My card was topped this morning but I can't see the funds. Why didn't it complete?",
+          "intent": "pending_top_up",
+          "pipeline": "failed",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 648,
+          "text": "I've already topped up, but I cannot see the funds being available. What happened?",
+          "intent": "pending_top_up",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 649,
+          "text": "What is going on? My top-up is still pending. I use your system all the time but now it is just showing as pending.",
+          "intent": "pending_top_up",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 651,
+          "text": "I topped up but it didn't complete",
+          "intent": "pending_top_up",
+          "pipeline": "failed",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 654,
+          "text": "Can you look into my top up please.  I made it over three hours ago and yet it's still pending.",
+          "intent": "pending_top_up",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 657,
+          "text": "why hasn't my top up gone through yet",
+          "intent": "pending_top_up",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 659,
+          "text": "Is there something wrong with your website? I tried topping up my account and it's been close to two hours now and it's still at \"pending\" f",
+          "intent": "pending_top_up",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 660,
+          "text": "I topped up by card a while ago and it's still pending, surely it should be done by now?",
+          "intent": "pending_top_up",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 667,
+          "text": "OMG!  I'm trying to load my card and it wont top up!  I desperately need the money either on my card or in my bank, where is it?",
+          "intent": "pending_top_up",
+          "pipeline": "failed",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 707,
+          "text": "The transfer I just made needs to be cancelled right now. It was my mistake. Please help me cancel it before it goes through!",
+          "intent": "cancel_transfer",
+          "pipeline": "pending",
+          "oneshot": "other"
+        },
+        {
+          "row_id": 712,
+          "text": "I need to make an immediate cancellation related to a transfer. This was a mistake. Please assist quickly so this does not actually go throu",
+          "intent": "cancel_transfer",
+          "pipeline": "pending",
+          "oneshot": "other"
+        }
+      ],
+      "wrong_account_pipeline": [
+        {
+          "row_id": 684,
+          "text": "I made a transaction but did it to the wrong account.",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 686,
+          "text": "I need you to cancel a transfer that I made.  It is the wrong account number and the app won't let me stop the transaction.  Please stop it!",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 692,
+          "text": "I accidentally made a transaction to the wrong account.",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 695,
+          "text": "This is URGENT, I typed the wrong payment information for a payment I needed to make and have clicked send, I need to reverse the transactio",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 706,
+          "text": "I submitted a transaction to the incorrect account.",
+          "intent": "cancel_transfer"
+        }
+      ],
+      "wrong_account_oneshot": [
+        {
+          "row_id": 684,
+          "text": "I made a transaction but did it to the wrong account.",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 686,
+          "text": "I need you to cancel a transfer that I made.  It is the wrong account number and the app won't let me stop the transaction.  Please stop it!",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 692,
+          "text": "I accidentally made a transaction to the wrong account.",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 695,
+          "text": "This is URGENT, I typed the wrong payment information for a payment I needed to make and have clicked send, I need to reverse the transactio",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 706,
+          "text": "I submitted a transaction to the incorrect account.",
+          "intent": "cancel_transfer"
+        }
+      ]
+    }
+  },
+  "generated_at": "2026-09-22T04:08:40Z"
+}

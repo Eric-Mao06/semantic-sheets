@@ -39,6 +39,8 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--planner-provider", default=os.environ.get("PLANNER_PROVIDER", "openai"), choices=["openai", "openrouter"])
     ap.add_argument("--planner-model", default=os.environ.get("PLANNER_MODEL", "gpt-6-astra"))
     ap.add_argument("--planner-reasoning", default=os.environ.get("PLANNER_REASONING", "high"))
+    ap.add_argument("--planner-openrouter-providers", default=os.environ.get("PLANNER_OPENROUTER_PROVIDERS", ""),
+                    help="OpenRouter only: pin the upstream provider(s), comma-separated, no fallbacks (e.g. Together)")
     ap.add_argument("--run", default="", help="run name (default: planner-<model>)")
     return ap.parse_args()
 
@@ -54,6 +56,7 @@ def main() -> int:
     os.environ["PLANNER_PROVIDER"] = args.planner_provider
     os.environ["PLANNER_MODEL"] = args.planner_model
     os.environ["PLANNER_REASONING"] = args.planner_reasoning
+    os.environ["PLANNER_OPENROUTER_PROVIDERS"] = args.planner_openrouter_providers
     os.environ.setdefault("SEMSHEET_DATA_DIR", str(ROOT / "data" / "benchmark_store"))
     os.environ.setdefault("SEMSHEET_WORKSPACE_BUDGET_USD", "50")
 
@@ -119,7 +122,8 @@ def main() -> int:
         if not os.environ.get(key_var):
             print(f"{key_var} is required for the {args.planner_provider} planner", file=sys.stderr)
             return 2
-    print(f"run={run} planner={args.planner_provider}/{args.planner_model} ({args.planner_reasoning}) -> {results_dir.relative_to(ROOT)}")
+    pin = f" pinned to {args.planner_openrouter_providers}" if args.planner_openrouter_providers else ""
+    print(f"run={run} planner={args.planner_provider}/{args.planner_model} ({args.planner_reasoning}){pin} -> {results_dir.relative_to(ROOT)}")
 
     prepared: dict[str, Prepared] = {}
     for k in keys:
@@ -172,7 +176,8 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             comparison = {"error": f"comparison failed: {type(e).__name__}: {e}"}
         result = {
-            "run": run, "planner_config": {"provider": args.planner_provider, "model": args.planner_model, "reasoning_effort": args.planner_reasoning},
+            "run": run, "planner_config": {"provider": args.planner_provider, "model": args.planner_model, "reasoning_effort": args.planner_reasoning,
+                                           "openrouter_providers": [p for p in args.planner_openrouter_providers.split(",") if p]},
             "scenario": k, "title": sc.title, "prompt": sc.prompt,
             "inputs": [{"name": t.name, "rows": t.row_count, "columns": t.columns, "approx_tokens": t.est_tokens} for t in prepared[k].tables],
             "notes": prepared[k].notes,
