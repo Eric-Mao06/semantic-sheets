@@ -83,6 +83,12 @@ score-calibrated cuts (protocol pre-registered and checked on held-out rows befo
 [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for the cross-planner summary and `benchmarks/results/<run>/RESULTS.md`
 for every plan, metric and disagreement.
 
+## Walkthroughs
+
+Screen recordings and screenshots of the six demo scenarios are kept on the media-only branch
+[`cursor/walkthrough-media-fd37`](https://github.com/Eric-Mao06/semantic-sheets/tree/cursor/walkthrough-media-fd37/walkthroughs)
+so the code history stays small; open any `.mp4` there in the GitHub file viewer to play it.
+
 ## How it works
 
 1. **Import** (`importer.py`): CSV/TSV sniffing, strict parsing with explicit columns, typed columns, stable
