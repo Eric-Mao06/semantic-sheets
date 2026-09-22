@@ -1,132 +1,148 @@
-# Semantic Sheet (MVP)
+# Semantic Sheet
 
-Turn plain language into reusable, typed operations over uploaded tables: classify feedback, score records,
-filter by meaning, rank results, group themes and match rows across files. Semantic judgements run on
-TypeSafe **Jev** (`jev-1.13.0`); plain language is compiled into a typed plan by a frontier model
-(OpenAI `gpt-6-astra`, reasoning effort `high`). Every result is auditable, correctable, exportable, and the
-same operations are exposed to agents over **MCP** (Streamable HTTP).
+**A working AI spreadsheet whose per-row semantic operations run on [TypeSafe Jev](https://typesafe.ai) instead of a
+frontier model.** Upload a table, ask in plain language, get a typed, auditable column back — for cents rather than
+dollars, in seconds rather than minutes, with exact arithmetic.
 
-```
-web/       React + TypeScript + Vite, Tailwind + shadcn-style primitives, Glide Data Grid, Web Workers (CSV preview, local filter/sort)
-server/    FastAPI API, planner, exact engine (DuckDB), Jev executor, MCP server, worker process
-scripts/   prepare_samples.py - builds the demo datasets from the raw public downloads
-data/      SQLite metadata, Parquet datasets/results, exports, Jev answer cache (created at runtime)
-```
+This repository is a reference implementation for teams building AI features into spreadsheet and data products.
+It exists to make one argument concrete and measurable: the unit economics of "AI over every row" change
+fundamentally when a frontier model does the *planning* once and a small decision model does the *judging* per row.
 
-## Requirements
+## The argument in numbers
 
-- Python 3.12+ and [`uv`](https://docs.astral.sh/uv/) (or `pip` with `server/requirements.txt`)
-- Node 20+ (frontend)
-- API keys exported in the environment of the API and worker processes (a `.env` at the repo root is a
-  convenient place; load it with `set -a; source .env; set +a`):
+Six realistic operations (semantic filter, three-way classification, filter + rank, filter + group + compare,
+categorise + revenue by country, product matching) were run two ways on the same CSVs with the same prompts
+([`benchmarks/`](benchmarks/README.md), list prices as of 2026-09-21):
 
-```
-TYPESAFE_API_KEY=apikey_...
-OPENAI_API_KEY=sk-...
-PLANNER_MODEL=gpt-6-astra
-PLANNER_REASONING=high
-```
+| | One request to `gpt-6-astra` with the whole CSV | Semantic Sheet: planner + Jev + DuckDB |
+|---|---|---|
+| **Total cost, six scenarios** | **$11.55** | **$0.15** with a DeepSeek V4.1 Flash planner (78× cheaper) · $0.72 with a `gpt-6-astra` planner (16×) |
+| Where the money goes | 100% frontier tokens, linear in table size | Jev: $0.005–0.055 per scenario at $0.042 / M input tokens. Planner: one call, $0.001–0.002 (DeepSeek) or $0.05–0.14 (Astra) |
+| **Latency** | 27 s to 26 min | 5–12 s end to end (DeepSeek planner), 20–50 s (Astra planner) |
+| Exact arithmetic | 53 of 83 revenue cells right; worst cell off by $46,503 | 376 of 376 right, by construction (DuckDB) |
+| 100,000-row table | ~6.8 M tokens: does not fit in one request at any price | ≈ $0.17 of Jev; runs in the background with partial results streaming in |
+| Semantic recall | Higher on the hardest rows (it reads everything with a frontier model) | Lower where candidate retrieval or question wording miss; every miss is visible in a review view, and the question is editable before anything runs |
 
-With `OPENROUTER_API_KEY` set, two more things become available:
+The cost gap comes from two places: Jev is ~240× cheaper per input token than the frontier model, and the frontier
+model's context is no longer the bottleneck, so table size stops being the cost driver. Full method, per-run plans
+and every disagreement: [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
 
-```
-OPENROUTER_API_KEY=sk-or-...
-JEV_ROUTES=direct,openrouter         # default: Jev packets are spread over TypeSafe direct and OpenRouter's
-                                     # decisions endpoint (typesafe/jev-1.13), each with its own rate limit
-PLANNER_PROVIDER=openrouter          # run the planner on any OpenRouter model, e.g. DeepSeek V4.1 Flash
-PLANNER_MODEL=deepseek/deepseek-v4.1-flash
-PLANNER_OPENROUTER_PROVIDERS=Together   # optional: pin the upstream provider (no fallbacks); empty = OpenRouter routing
-```
+## What the product does
 
-Set `JEV_ROUTES=direct` to pin Jev to the TypeSafe API only.
+1. **Upload** a CSV (or pick a sample). Strict import: typed columns, stable row ids, malformed rows reported, never
+   silently dropped.
+2. **Ask** in plain language: *"Find customers trying to cancel an order because they cannot afford it."*
+3. **See the plan** before it runs: the exact question Jev will be asked, the columns it will see, the rows, the
+   requests, the estimated cost and time. Edit any of it.
+4. **Run.** Rows are judged on Jev in multi-row packets with rate limits, retries, a content-addressed answer cache
+   and a spend ceiling. Results appear as they commit; you can query, cancel or resume a partial job.
+5. **Review.** Every cell carries the raw model answer, a score and a status. Decision thresholds are calibrated
+   on the observed score distribution once a stage is scored; near-cut rows are flagged for a spot check instead of
+   being dropped. Corrections create a new immutable version and never overwrite model output.
+6. **Export** CSV or Parquet with a manifest that says exactly what was and was not completed.
 
-## Run
+Everything above is also exposed to agents as **MCP tools** over Streamable HTTP, with bounded pages so an
+assistant can drive the whole loop without pulling the table into its context ([`docs/mcp.md`](docs/mcp.md)).
 
-```bash
-# backend API (port 8000) and the job worker, from server/
-set -a; source .env; set +a
-cd server
-uv sync --extra dev
-uv run python -m semsheet.main        # API: http://localhost:8000  (MCP: POST http://localhost:8000/mcp)
-uv run python -m semsheet.worker      # separate terminal; several workers may run against the same store
-
-# frontend (port 5173, proxies /api and /mcp to :8000), from web/
-cd web
-npm install
-npm run dev
-```
-
-Open http://localhost:5173. The demo workspace token is `demo-token` (`SEMSHEET_DEMO_TOKEN`); the web app
-sends it as `Authorization: Bearer demo-token`, and MCP clients use the same header.
-
-### Demo datasets
-
-`scripts/prepare_samples.py` turns the raw public downloads in `data/raw/` (Bitext, CFPB, Inside Airbnb NYC,
-BANKING77, WDC product matching, Online Retail II, Berkeley alumni) into bounded demo CSVs in `data/samples/`. The landing page
-lists them under "Sample datasets"; each card carries an example operation. The nine bounded files the landing
-page uses are checked in, so a fresh clone (and the Docker image) has them without running the script.
-`SEMSHEET_SAMPLES_DIR` points the API at a different samples directory (default `data/samples`).
-
-## Deploy (Railway)
-
-The root `Dockerfile` builds the frontend and serves it, the API and the MCP endpoint from one FastAPI
-process on `$PORT`, with the job worker running alongside it (`scripts/start.sh`, `SEMSHEET_WORKERS` sets the
-number of workers). `railway.json` selects the Dockerfile builder and the `/api/health` health check.
-
-```bash
-railway up                              # from the repo root; creates the project + service on first run
-railway volume add --mount-path /app/data   # SQLite metadata, Parquet datasets/results, exports, Jev cache
-railway variable set OPENAI_API_KEY=sk-... OPENROUTER_API_KEY=sk-or-... TYPESAFE_API_KEY=apikey_... SEMSHEET_DEMO_TOKEN=<token>
-railway domain
-```
-
-Metadata lives in SQLite on the volume, so keep the service at one replica. Without `TYPESAFE_API_KEY`, set
-`OPENROUTER_API_KEY` and Jev runs over OpenRouter only (the `direct` route is skipped). The bounded demo
-datasets in `data/samples/` are versioned and copied into the image (`SEMSHEET_SAMPLES_DIR=/app/samples`);
-the raw downloads and the large scale files stay local.
-
-## Test
-
-```bash
-cd server && uv run pytest -q          # importer, exact engine, workflow/API with a fake provider, MCP client
-cd web && npx tsc -p tsconfig.app.json --noEmit && npm run build
-```
-
-## Benchmark
-
-`benchmarks/` compares the operators (planner + Jev + DuckDB) with handing the same CSV and prompt to `gpt-6-astra`
-(reasoning `high`) in one request, on the six walkthrough scenarios: output quality against gold or agreement
-metrics, token usage, cost and latency. The operators were run with three planners (`gpt-6-astra`, `z-ai/glm-5.3-flash`
-and `deepseek/deepseek-v4.1-flash` via OpenRouter), plus an engine-only A/B that re-runs the DeepSeek plans with
-score-calibrated cuts (protocol pre-registered and checked on held-out rows before the run). See
-[`benchmarks/README.md`](benchmarks/README.md) for the method and findings,
-[`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for the cross-planner summary and `benchmarks/results/<run>/RESULTS.md`
-for every plan, metric and disagreement.
-
-## Walkthroughs
-
-Screen recordings and screenshots of the six demo scenarios are kept on the media-only branch
-[`cursor/walkthrough-media-fd37`](https://github.com/Eric-Mao06/semantic-sheets/tree/cursor/walkthrough-media-fd37/walkthroughs)
-so the code history stays small; open any `.mp4` there in the GitHub file viewer to play it.
+<p align="center">
+  <em>Screen recordings of the six scenarios are on the media-only branch
+  <a href="https://github.com/Eric-Mao06/semantic-sheets/tree/cursor/walkthrough-media-fd37/walkthroughs">cursor/walkthrough-media-fd37</a>.</em>
+</p>
 
 ## How it works
 
-1. **Import** (`importer.py`): CSV/TSV sniffing, strict parsing with explicit columns, typed columns, stable
-   `_row_id`, Parquet storage, malformed rows reported (never silently dropped).
-2. **Plan** (`planner.py`, `models.py`): the frontier model sees only the schema and a bounded sample and
-   returns a typed plan (`semantic_annotate`, `filter`, `sort`, `aggregate`, `compute`, `join`,
-   `semantic_match`, `project`). Plans are validated and estimated (rows, Jev requests, cost, cache hits)
-   before anything runs. The Operation panel explains the plan in plain sentences with the estimate and a Run
-   button; the full step editor and safety limits sit behind “Details & edit”.
-3. **Execute** (`engine/executor.py`, `engine/jev.py`): rows are packed into multi-row Jev requests with
-   token-bucket rate limits, retries, a content-addressed answer cache and usage accounting. Jobs run in
-   restart-safe chunks with budget, request and deadline guards; partial results are queryable and resumable.
-   Exact steps compile to DuckDB SQL over Parquet (`engine/exact.py`).
-4. **Review**: each judgement stores the raw model answer (probabilities, confidence) and status
-   (`ok`, `uncertain`, `missing`). Once a stage is fully scored, boolean and match cuts are calibrated on the
-   observed score distribution (`engine/calibrate.py`: Otsu's threshold, clamped, with a fixed-threshold
-   fallback for tiny inputs), so every row gets an answer; rows within ±0.10 of the cut are flagged in
-   `<question>.near` and listed in the filter's review view while staying in the output. `thresholds.mode: fixed`
-   keeps the classic three-way behaviour. Corrections create new immutable result versions that keep the model output.
-5. **Agents** (`mcp_server.py`): the same services as MCP tools (`datasets_*`, `plans_*`, `jobs_*`,
-   `results_*`) with bounded pages and structured error envelopes.
+```
+plain language ──▶ planner (frontier model, sees schema + 20 rows) ──▶ typed plan (JSON)
+                                                                          │
+                       ┌──────────────────────────────────────────────────┴───────────┐
+                       ▼                                                              ▼
+        semantic steps: Jev, one packet of rows at a time             exact steps: DuckDB over Parquet
+        boolean / category / score questions per row                  filter · sort · join · aggregate · compute
+        raw answer + score + status stored per cell                   review views for rows without an answer
+                       └──────────────────────────────┬───────────────────────────────┘
+                                                      ▼
+                     versioned result: paged queries, provenance per cell, overrides, export
+```
+
+- **The plan is the contract.** Neither the UI nor MCP accepts SQL or free-form code; every operation is a typed
+  step ([`docs/plan-format.md`](docs/plan-format.md)). That is what makes the estimate honest and the run auditable.
+- **Jev is asked one literal question per row**, three kinds: yes/no probability, one label from a fixed set, or a
+  level on an ordered rubric. It cannot count or do arithmetic, and is never asked to.
+- **Thresholds are set after seeing the scores.** The planner cannot know where Jev's scores will separate; Otsu's
+  cut on the observed histogram places it, with a fixed-threshold fallback and versioned constants
+  ([`benchmarks/README.md`](benchmarks/README.md#calibrated-cuts-what-changed-in-the-engine-and-the-protocol-against-overfitting)).
+- **Nothing is lost silently.** Rows without a usable answer go to a review view; partial jobs keep their committed
+  chunks; exports carry a completion manifest.
+
+The full design — import, planning, execution, calibration, querying, storage layout, statuses — is in
+[`docs/architecture.md`](docs/architecture.md).
+
+## Quickstart
+
+Requirements: Python 3.12+ with [`uv`](https://docs.astral.sh/uv/), Node 20+, and API keys for Jev
+(`TYPESAFE_API_KEY` and/or `OPENROUTER_API_KEY`) and a planner (`OPENAI_API_KEY`, or reuse `OPENROUTER_API_KEY`).
+
+```bash
+git clone https://github.com/Eric-Mao06/semantic-sheets && cd semantic-sheets
+cp .env.example .env                 # fill in keys; every variable is documented in docs/configuration.md
+set -a; source .env; set +a
+
+# terminal 1: API + MCP on :8000
+cd server && uv sync --extra dev && uv run python -m semsheet.main
+# terminal 2: job worker
+cd server && uv run python -m semsheet.worker
+# terminal 3: web app on :5173 (proxies /api and /mcp to :8000)
+cd web && npm install && npm run dev
+```
+
+Open http://localhost:5173, pick a sample dataset, and run the suggested operation. The demo workspace token is
+`demo-token`; the web app sends it as `Authorization: Bearer demo-token`, and MCP clients use the same header.
+
+To run the planner on a cheaper model, set `PLANNER_PROVIDER=openrouter` and
+`PLANNER_MODEL=deepseek/deepseek-v4.1-flash` (2–5 s per plan, ~$0.001 per call in the benchmark).
+
+One-container deployment (Docker, Railway): [`docs/deploy.md`](docs/deploy.md).
+
+## Repository map
+
+```
+server/semsheet/         FastAPI API, MCP server, services, typed plan models, planner, importer
+server/semsheet/engine/  exact.py (plan → DuckDB SQL), jev.py (packets, limits, cache), executor.py (jobs), calibrate.py
+server/tests/            importer, exact engine, calibration, end-to-end workflow with a fake Jev, MCP client
+web/                     React + TypeScript + Vite; Tailwind + shadcn-style primitives; Glide Data Grid
+benchmarks/              operators-vs-one-shot harness, scenarios, results per planner, calibration protocol
+scripts/                 prepare_samples.py (builds data/samples from public downloads), start.sh (container entry)
+data/samples/            the nine bounded demo CSVs the landing page offers (checked in)
+docs/                    architecture, plan format, configuration, MCP, deployment
+```
+
+## Sample datasets
+
+The landing page offers nine bounded CSVs built by `scripts/prepare_samples.py` from public sources, each with a
+suggested operation: Bitext customer-support messages, BANKING77 queries, CFPB consumer complaints, Inside Airbnb
+NYC reviews, Online Retail II products and product × country revenue, WDC product offers and catalog (for
+matching), and 100,000 UC Berkeley alumni profiles. They are checked in so a fresh clone and the Docker image work
+without running the script; the raw downloads and larger scale files stay local (`data/raw/`, ignored).
+
+## Test and lint
+
+```bash
+ruff check .                                             # from the repo root
+cd server && uv run pytest -q                            # 37 tests, no API keys needed (fake Jev provider)
+cd web && npm run typecheck && npm run lint && npm run build
+```
+
+## What to take from this if you build spreadsheets
+
+- **Split planning from judging.** Let the expensive model read the schema and a sample once; let a decision
+  model read the rows. The estimate panel in this repo is what makes the split legible to a user before they spend.
+- **Type the plan.** A constrained step language is what lets you estimate cost, compile exact parts to SQL, cache
+  judgements by content, and explain the operation in plain sentences.
+- **Calibrate after scoring, flag instead of withholding.** The single largest quality lever in the benchmark was
+  where the boolean cut sat, not which planner wrote the question.
+- **Keep the raw answer.** Provenance per cell, overrides as versions, and a manifest per export are what make an
+  AI column something a finance team will accept.
+
+## License
+
+[MIT](LICENSE). Contributions welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
