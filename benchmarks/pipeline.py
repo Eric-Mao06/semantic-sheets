@@ -13,18 +13,17 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-
 from common import ROOT, jev_cost, planner_cost
 
 sys.path.insert(0, str(ROOT / "server"))
+
+from scenarios import Prepared, Scenario  # noqa: E402
 
 from semsheet.config import settings  # noqa: E402
 from semsheet.db import get_db  # noqa: E402
 from semsheet.engine.executor import JobRunner  # noqa: E402
 from semsheet.engine.jev import JevClient  # noqa: E402
 from semsheet.services import ServiceError, Services  # noqa: E402
-
-from scenarios import Prepared, Scenario  # noqa: E402
 
 
 @dataclass

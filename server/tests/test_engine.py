@@ -1,7 +1,6 @@
 """Exact engine: expression compilation, plan compilation, provisional semantics, null and tie-break rules."""
 from pathlib import Path
 
-import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -32,7 +31,7 @@ def _plan(steps, output):
 
 def _rows(compiled, step):
     with connect(compiled) as con:
-        return con.execute(compiled.sql_for(step)).fetch_arrow_table().to_pylist()
+        return con.execute(compiled.sql_for(step)).to_arrow_table().to_pylist()
 
 
 def test_compute_to_number_filter_sort_nulls_last(tmp_path):

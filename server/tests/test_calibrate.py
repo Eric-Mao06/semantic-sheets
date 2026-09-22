@@ -5,8 +5,7 @@ import json
 import uuid
 
 from semsheet.engine import calibrate, jev
-from tests.conftest import H, FakeJev, run_job, write_csv
-
+from tests.conftest import FakeJev, H, run_job, write_csv
 
 # -- the rule ------------------------------------------------------------------------------------
 
@@ -57,7 +56,7 @@ class ScoredJev(FakeJev):
 
     async def evaluate(self, packet: jev.Packet, model: str) -> jev.JevResult:
         answers = {}
-        for key, qd in packet.questions.items():
+        for key, _qd in packet.questions.items():
             ref = key.split("__")[0]
             text = json.dumps(packet.state[ref])
             p = float(text.split("p=")[1].split('"')[0])
@@ -129,9 +128,9 @@ def test_match_accept_cut_is_calibrated_on_best_candidate_scores(client, databas
     scores = [0.02 + (i % 4) * 0.01 for i in range(45)] + [0.38, 0.42, 0.46, 0.5, 0.55] + [0.9 + (i % 3) * 0.02 for i in range(10)]
     left = write_csv(data_dir / "calib_left.csv", ["offer"], [[f"widget {i} p={s:.2f}"] for i, s in enumerate(scores)])
     right = write_csv(data_dir / "calib_right.csv", ["title", "sku"], [["widget", "W1"], ["gadget", "G1"]])
-    l, r = _import(client, left), _import(client, right)
-    plan = {"plan_version": "1", "source": {"dataset_id": l["dataset_id"], "version_id": l["version_id"]}, "model": "jev-1.13.0", "output": "m", "steps": [
-        {"id": "m", "op": "semantic_match", "input": "source", "right": {"dataset_id": r["dataset_id"]}, "left_columns": ["offer"], "right_columns": ["title"],
+    left_ds, right_ds = _import(client, left), _import(client, right)
+    plan = {"plan_version": "1", "source": {"dataset_id": left_ds["dataset_id"], "version_id": left_ds["version_id"]}, "model": "jev-1.13.0", "output": "m", "steps": [
+        {"id": "m", "op": "semantic_match", "input": "source", "right": {"dataset_id": right_ds["dataset_id"]}, "left_columns": ["offer"], "right_columns": ["title"],
          "instruction": "Same product?", "candidates_per_row": 2, "accept_min": 0.8, "reject_max": 0.3, "right_output_columns": ["sku"]}]}
     v = client.post("/api/plans/validate", json={"plan": plan}, headers=H)
     assert v.status_code == 200, v.text

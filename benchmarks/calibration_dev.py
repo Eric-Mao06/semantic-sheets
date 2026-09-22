@@ -30,9 +30,8 @@ DEV_DIR = BENCH_DATA_DIR / "calibration_dev"
 
 def _dev_tables():
     import pandas as pd
-
     from common import SAMPLES_DIR
-    from scenarios import Prepared, Table, _AIRBNB_ROWS, _csv
+    from scenarios import _AIRBNB_ROWS, Prepared, Table, _csv
 
     def write(df: pd.DataFrame, name: str) -> Table:
         DEV_DIR.mkdir(parents=True, exist_ok=True)

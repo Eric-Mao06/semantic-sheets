@@ -1,5 +1,7 @@
-"""Runtime configuration. All limits are proposed defaults from the design document and
-can be overridden through environment variables."""
+"""Runtime configuration.
+
+Every value has a default that works for a local demo; the ones that vary between deployments can be overridden
+through environment variables. See docs/configuration.md for the full list."""
 from __future__ import annotations
 
 import os

@@ -1,6 +1,6 @@
 # Benchmark: Jev spreadsheet operators vs. one-shot gpt-6-astra
 
-Six walkthrough scenarios, each run two ways with the **same prompt and the same CSV**: the operators (planner writes a typed plan → `jev-1.13.0` answers per row → DuckDB does the exact work) and a single `gpt-6-astra` (reasoning `high`) request holding the whole CSV. The operators were run once per planner model; the one-shot answers are shared across runs.
+Six scenarios, each run two ways with the **same prompt and the same CSV**: the operators (planner writes a typed plan → `jev-1.13.0` answers per row → DuckDB does the exact work) and a single `gpt-6-astra` (reasoning `high`) request holding the whole CSV. The operators were run once per planner model; the one-shot answers are shared across runs.
 
 Prices used (list, 2026-09-21): gpt-6-astra $10.00 / M input, $1.00 / M cached input, $50.00 / M output (reasoning tokens bill as output; requests over 272,000 input tokens reprice to $20.00 / $75.00); z-ai/glm-5.3-flash via OpenRouter $0.15 / M input, $0.50 / M output; deepseek/deepseek-v4.1-flash via OpenRouter (Together) $0.30 / M input, $1.20 / M output, using OpenRouter's reported cost when it returns one; jev-1.13.0 $0.042 / M input, output free. Costs are computed from the token usage each API reported.
 

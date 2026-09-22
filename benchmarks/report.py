@@ -46,10 +46,10 @@ def _headline(r: dict[str, Any]) -> tuple[str, str, str]:
                 f"Jaccard {_f(a.get('jaccard'))} ({a.get('both')} shared)")
     if k == "banking_queries":
         def cls(side: dict[str, Any]) -> str:
-            s, l = side.get("strict") or {}, side.get("lenient") or {}
-            pc = (l.get("per_class") or {})
+            s, lenient = side.get("strict") or {}, side.get("lenient") or {}
+            pc = (lenient.get("per_class") or {})
             return (f"pending F1 {_f((pc.get('pending') or {}).get('f1'), pct=True)}, failed F1 {_f((pc.get('failed') or {}).get('f1'), pct=True)} (lenient gold); "
-                    f"macro-F1 {_f(s.get('macro_f1'), pct=True)} strict / {_f(l.get('macro_f1'), pct=True)} lenient")
+                    f"macro-F1 {_f(s.get('macro_f1'), pct=True)} strict / {_f(lenient.get('macro_f1'), pct=True)} lenient")
         return (cls(p), cls(o), f"κ {_f(a.get('kappa'))}, agreement {_f(a.get('agreement'), pct=True)}; wrong_account {(a.get('wrong_account') or {}).get('both')} shared")
     if k == "cfpb_complaints":
         rv = sum((p.get("review_view") or {}).get(q, {}).get("uncertain", 0) for q in (p.get("review_view") or {}))
@@ -282,7 +282,7 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
     """Top-level RESULTS.md: the one-shot baseline against the operators under each planner."""
     out: list[str] = []
     out.append("# Benchmark: Jev spreadsheet operators vs. one-shot gpt-6-astra\n")
-    out.append("Six walkthrough scenarios, each run two ways with the **same prompt and the same CSV**: the operators (planner writes a typed plan → `jev-1.13.0` "
+    out.append("Six scenarios, each run two ways with the **same prompt and the same CSV**: the operators (planner writes a typed plan → `jev-1.13.0` "
                "answers per row → DuckDB does the exact work) and a single `gpt-6-astra` (reasoning `high`) request holding the whole CSV. "
                "The operators were run once per planner model; the one-shot answers are shared across runs.\n")
     out.append(_price_line())

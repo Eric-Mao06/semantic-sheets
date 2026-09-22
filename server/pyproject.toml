@@ -1,12 +1,12 @@
 [project]
 name = "semsheet"
 version = "0.1.0"
-description = "Semantic spreadsheet MVP: typed plans over uploaded tables, executed with Jev and DuckDB, exposed through a web API and MCP."
+description = "Semantic Sheet: plain-language operations over uploaded tables, planned by a frontier model, judged row by row on TypeSafe Jev, computed exactly in DuckDB, served over a web API and MCP."
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
-  "duckdb>=1.1",
+  "duckdb>=1.5",
   "pyarrow>=17",
   "pandas>=2.2",
   "httpx>=0.27",
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "anyio>=4"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "anyio>=4", "ruff>=0.6"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -1,7 +1,7 @@
 # Benchmark: Jev spreadsheet operators vs. one-shot gpt-6-astra
 
-For each of the six operations exercised in the MVP walkthrough, this benchmark gives the **same prompt** and the
-**same CSV** to two approaches and compares their final outputs and cost:
+For each of the six suggested operations on the landing-page sample datasets, this benchmark gives the **same prompt**
+and the **same CSV** to two approaches and compares their final outputs and cost:
 
 | Arm | What happens |
 |---|---|
@@ -32,8 +32,8 @@ other, so two routes give roughly twice the throughput.
 | `wdc_product_matching` | Match offers to the catalog for the same exact product despite different titles. | 400 offers + 598 catalog entries (`cluster_id`, `true_catalog_id` and the offers' own records removed) | WDC gold pairs, exactly one per offer |
 
 Tables are bounded so the one-shot request stays under gpt-6-astra's 272K-token long-context price tier. The
-100,000-row CFPB file used in the walkthrough is ~6.8M tokens (all 15 columns) and cannot be sent in one request at all
-(context window 1.05M).
+100,000-row CFPB scale file (`cfpb_complaints_100k.csv`, built locally by `scripts/prepare_samples.py`) is ~6.8M tokens
+(all 15 columns) and cannot be sent in one request at all (context window 1.05M).
 
 ## Results (single run per scenario and planner, 2026-09-21)
 
@@ -62,7 +62,7 @@ With the DeepSeek planner and dual-route Jev the whole operator pipeline finishe
   single planner call. Swapping the planner to GLM 5.3 Flash or DeepSeek V4.1 Flash cuts the planner to $0.001–0.002
   per scenario (4–7% of the total); the operators then cost $0.15–0.17 for all six scenarios, 70–78× less than the
   one-shot, and are Jev-dominated. Jev itself is $0.005–$0.055 per scenario ($0.15 for all six) and grows linearly with rows (the
-  5,000-row CFPB job used 204K Jev tokens for $0.009), so the 100K-row walkthrough would be about $0.17 of Jev, while
+  5,000-row CFPB job used 204K Jev tokens for $0.009), so the 100K-row CFPB file would be about $0.17 of Jev, while
   the one-shot cannot run at that size at any price. Routing half of Jev through OpenRouter changes nothing on price.
 - **Latency.** Operators finish in 20–50 s with the Astra planner (15–50 s of it planning), 10–35 s with GLM 5.3
   Flash (5–28 s planning) and 5–12 s with DeepSeek V4.1 Flash on Together (2.0–4.5 s planning). The Jev stage with one route took 1–14 s for 300–5,000 rows; with two routes the three
@@ -236,21 +236,25 @@ Per scenario, DeepSeek plans, before → after (the one-shot column is unchanged
 
 ## Running it
 
+The harness imports the engine in-process, so it runs with the server's environment (`cd server && uv sync`), from the
+repository root. The six benchmark scenarios use the checked-in `data/samples/` files; `calibration_dev.py` also needs
+the larger scale files, which `scripts/prepare_samples.py` builds from the raw downloads it lists in its docstring.
+
 ```bash
-python scripts/prepare_samples.py                  # needs the raw downloads in data/raw (see README)
 export OPENAI_API_KEY=... TYPESAFE_API_KEY=...
-.venv/bin/python benchmarks/run.py                 # both arms, all scenarios, gpt-6-astra planner (~$12 of gpt-6-astra, ~$0.15 of Jev)
-.venv/bin/python benchmarks/run.py -s wdc_product_matching --arms pipeline
-.venv/bin/python benchmarks/run.py --reuse oneshot # rerun operators + comparison, reuse stored one-shot answers
+PY=server/.venv/bin/python
+$PY benchmarks/run.py                              # both arms, all scenarios, gpt-6-astra planner (~$12 of gpt-6-astra, ~$0.15 of Jev)
+$PY benchmarks/run.py -s wdc_product_matching --arms pipeline
+$PY benchmarks/run.py --reuse oneshot              # rerun operators + comparison, reuse stored one-shot answers
 export OPENROUTER_API_KEY=...                      # enables Jev over both routes (JEV_ROUTES=direct,openrouter) and the OpenRouter planner
-.venv/bin/python benchmarks/run.py --planner-provider openrouter --planner-model z-ai/glm-5.3-flash --reuse oneshot
-JEV_ROUTES=direct .venv/bin/python benchmarks/run.py ...   # pin Jev to the TypeSafe API only
-.venv/bin/python benchmarks/run.py --planner-provider openrouter --planner-model deepseek/deepseek-v4.1-flash \
+$PY benchmarks/run.py --planner-provider openrouter --planner-model z-ai/glm-5.3-flash --reuse oneshot
+JEV_ROUTES=direct $PY benchmarks/run.py ...        # pin Jev to the TypeSafe API only
+$PY benchmarks/run.py --planner-provider openrouter --planner-model deepseek/deepseek-v4.1-flash \
     --planner-openrouter-providers Together --reuse oneshot   # pin the OpenRouter upstream provider (no fallbacks)
-.venv/bin/python benchmarks/run.py --plan-from planner-deepseek-v4.1-flash --run planner-deepseek-v4.1-flash-calibrated \
+$PY benchmarks/run.py --plan-from planner-deepseek-v4.1-flash --run planner-deepseek-v4.1-flash-calibrated \
     --reuse oneshot                                # re-run the engine on a previous run's plans (engine-only A/B; no planner call)
-.venv/bin/python benchmarks/calibration_dev.py --plan-from planner-deepseek-v4.1-flash   # held-out check of the cut rule on disjoint rows
-.venv/bin/python benchmarks/report.py              # regenerate RESULTS.md and results/<run>/RESULTS.md
+$PY benchmarks/calibration_dev.py --plan-from planner-deepseek-v4.1-flash   # held-out check of the cut rule on disjoint rows
+$PY benchmarks/report.py                           # regenerate RESULTS.md and results/<run>/RESULTS.md
 ```
 
 Each planner configuration is a run named `planner-<model>` (override with `--run`). `run.py` keeps its own Semantic

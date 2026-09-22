@@ -9,10 +9,8 @@ import time
 from typing import Any
 
 from openai import OpenAI
-from pydantic import ValidationError
 
 from .config import settings
-from .models import Plan
 
 SYSTEM_PROMPT = """You are the planner for a semantic spreadsheet. Convert the user's request about an uploaded table into ONE typed plan (JSON) that the execution engine runs. You never process rows yourself.
 
@@ -107,7 +105,7 @@ def compile_prompt(prompt: str, dataset_id: str, version_id: str, schema: list[d
     try:
         obj = json.loads(text)
     except json.JSONDecodeError as e:
-        raise PlannerError(f"planner returned invalid JSON: {e}")
+        raise PlannerError(f"planner returned invalid JSON: {e}") from e
     if isinstance(obj, dict) and "plan" in obj and "steps" not in obj:
         obj = obj["plan"]
     if not isinstance(obj, dict):
@@ -175,11 +173,3 @@ def _strip_code_fence(text: str) -> str:
         if t.rstrip().endswith("```"):
             t = t.rstrip()[:-3]
     return t.strip()
-
-
-def validate_shape(obj: dict[str, Any]) -> list[str]:
-    try:
-        Plan.model_validate(obj)
-        return []
-    except ValidationError as e:
-        return [f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()]

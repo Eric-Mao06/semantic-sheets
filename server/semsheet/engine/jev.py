@@ -1,6 +1,6 @@
 """Adapter from logical semantic questions to TypeSafe Jev (System One) requests.
 
-Design points from the MVP document:
+Design points:
 * one request carries several rows as shared state; each question is tied to exactly one row by name
 * the complete serialized prompt is accounted for against the provider context limits
 * shared request and token rate limiters, bounded in-flight requests, exponential backoff with jitter
@@ -14,8 +14,9 @@ import json
 import math
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -311,7 +312,7 @@ class JevClient:
     def route_requests(self) -> dict[str, int]:
         return {r.name: r.requests_made for r in self.routes}
 
-    async def __aenter__(self) -> "JevClient":
+    async def __aenter__(self) -> JevClient:
         self._client = httpx.AsyncClient(timeout=settings.jev_timeout_seconds, limits=httpx.Limits(max_connections=64 * max(1, len(self.routes))))
         return self
 
@@ -359,7 +360,7 @@ class JevClient:
             await asyncio.sleep(wait + random.uniform(0, min(delay, 2)))
             delay = min(delay * 2, 16)
 
-    async def _attempt(self, route: JevRoute, body: dict[str, Any]) -> "JevResult | _Retry":
+    async def _attempt(self, route: JevRoute, body: dict[str, Any]) -> JevResult | _Retry:
         assert self._client is not None
         try:
             resp = await self._client.post(route.url, json=body, headers={"Authorization": f"Bearer {route.api_key}", "Content-Type": "application/json"})

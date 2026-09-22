@@ -67,8 +67,8 @@ class FakeJev:
                     answers[key] = {"noul": 0.04}
             elif qd["type"] == "choice":
                 labels = list(qd["criteria"].keys())
-                pick = next((l for l in labels if l.split("_")[0] in text), labels[-1])
-                probs = {l: (0.9 if l == pick else 0.1 / max(1, len(labels) - 1)) for l in labels}
+                pick = next((label for label in labels if label.split("_")[0] in text), labels[-1])
+                probs = {label: (0.9 if label == pick else 0.1 / max(1, len(labels) - 1)) for label in labels}
                 answers[key] = {"choice": pick, "confidence": 0.9, "probabilities": probs}
             else:
                 n = min(text.count("!"), len(qd["criteria"]) - 1)

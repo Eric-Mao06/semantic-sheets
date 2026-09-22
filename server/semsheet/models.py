@@ -4,7 +4,7 @@ Every operation declares its input, output columns, missing-data behaviour and c
 The expression tree is deliberately constrained: neither interface accepts arbitrary SQL or Python."""
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -32,16 +32,16 @@ class ColumnRef(BaseModel):
 
 class Literal_(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    literal: Union[str, int, float, bool, None, list[Union[str, int, float, bool, None]]]
+    literal: str | int | float | bool | None | list[str | int | float | bool | None]
 
 
 class Call(BaseModel):
     model_config = ConfigDict(extra="forbid")
     op: ExprOp
-    args: list["Expr"] = Field(default_factory=list)
+    args: list[Expr] = Field(default_factory=list)
 
 
-Expr = Union[ColumnRef, Literal_, Call]
+Expr = ColumnRef | Literal_ | Call
 Call.model_rebuild()
 
 
@@ -65,7 +65,7 @@ class BooleanThresholds(BaseModel):
     false_max: float = Field(0.15, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
-    def _ordered(self) -> "BooleanThresholds":
+    def _ordered(self) -> BooleanThresholds:
         if self.false_max > self.true_min:
             raise ValueError("thresholds.false_max must be <= thresholds.true_min")
         return self
@@ -93,7 +93,7 @@ class Question(BaseModel):
     levels: list[str] | None = None
 
     @model_validator(mode="after")
-    def _check_kind(self) -> "Question":
+    def _check_kind(self) -> Question:
         if self.kind == "category":
             if not self.options or len(self.options) < 2:
                 raise ValueError("category question needs at least two options")
@@ -193,7 +193,7 @@ class JoinKey(BaseModel):
 
 class JoinStep(StepBase):
     op: Literal["join"]
-    right: Union[SourceRef, str] = Field(description="Dataset reference or the id of an earlier step")
+    right: SourceRef | str = Field(description="Dataset reference or the id of an earlier step")
     on: list[JoinKey] = Field(min_length=1)
     how: Literal["inner", "left"] = "inner"
     right_columns: list[str] | None = None
@@ -236,10 +236,7 @@ class SemanticMatchStep(StepBase):
 
 
 Step = Annotated[
-    Union[
-        SemanticAnnotateStep, FilterStep, SortStep, ProjectStep, ComputeStep, AggregateStep,
-        JoinStep, DistinctStep, LimitStep, SemanticMatchStep,
-    ],
+    SemanticAnnotateStep | FilterStep | SortStep | ProjectStep | ComputeStep | AggregateStep | JoinStep | DistinctStep | LimitStep | SemanticMatchStep,
     Field(discriminator="op"),
 ]
 
@@ -254,9 +251,6 @@ class Plan(BaseModel):
     title: str | None = Field(None, max_length=200)
     description: str | None = Field(None, max_length=2000)
 
-    def step_map(self) -> dict[str, Any]:
-        return {s.id: s for s in self.steps}
-
 
 # ------------------------------------------------------------------------------------------------
 # Job limits & envelopes
@@ -270,13 +264,6 @@ class JobLimits(BaseModel):
     spend_target_usd: float = Field(0.50, ge=0.0)
     deadline_seconds: int = Field(600, ge=5, le=6 * 3600)
     rows_per_request: int | None = Field(None, ge=1, le=50)
-
-
-class ValidationIssue(BaseModel):
-    path: str
-    code: str
-    message: str
-    fix: str | None = None
 
 
 class PlanEstimate(BaseModel):

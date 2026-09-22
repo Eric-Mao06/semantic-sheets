@@ -39,7 +39,7 @@ async def main() -> None:
             if job_id is None:
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=0.5)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 continue
             log.info("running job %s", job_id)

@@ -7,9 +7,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from openai import OpenAI
-
 from common import ASTRA_MODEL, ASTRA_REASONING, astra_cost, estimate_tokens
+from openai import OpenAI
 from scenarios import Prepared, Scenario
 
 INSTRUCTIONS = """You are given one or more complete data tables as CSV text and a request from a spreadsheet user.
