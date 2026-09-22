@@ -2,7 +2,6 @@
 name = "semsheet"
 version = "0.1.0"
 description = "Semantic Sheet: plain-language operations over uploaded tables, planned by a frontier model, judged row by row on TypeSafe Jev, computed exactly in DuckDB, served over a web API and MCP."
-readme = "../README.md"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115",
