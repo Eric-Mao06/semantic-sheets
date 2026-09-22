@@ -387,7 +387,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
               ref={promptRef}
               rows={1}
               className="max-h-32 min-h-10 flex-1 resize-none rounded-md bg-page py-2.5 text-[14px] leading-snug shadow-none max-[900px]:min-h-11 max-[900px]:py-3"
-              placeholder={isMobile ? "What do you want to do with this table?" : "What do you want to do with this table? e.g. “Find customers trying to cancel because they can't afford it, and rate how urgent each message is”"}
+              placeholder={isMobile ? "What do you want to do?" : "What do you want to do with this table? e.g. “Find customers trying to cancel because they can't afford it, and rate how urgent each message is”"}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => {
