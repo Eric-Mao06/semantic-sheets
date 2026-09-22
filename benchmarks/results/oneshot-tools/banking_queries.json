@@ -1,0 +1,417 @@
+{
+  "run": "oneshot-tools",
+  "arms": [
+    "oneshot"
+  ],
+  "oneshot_variant": "tools",
+  "planner_config": null,
+  "scenario": "banking_queries",
+  "title": "Banking queries: separate transfer problems",
+  "prompt": "Separate pending transfers, failed transfers, and transfers sent to the wrong account.",
+  "inputs": [
+    {
+      "name": "banking_queries",
+      "rows": 3080,
+      "columns": [
+        "row_id",
+        "text"
+      ],
+      "approx_tokens": 46300
+    }
+  ],
+  "notes": [
+    "Gold classes come from the BANKING77 intents (removed from both inputs). Strict: pending_transfer -> pending; failed_transfer and declined_transfer -> failed; everything else -> other. Lenient additionally counts transfer_timing, balance_not_updated_after_bank_transfer and transfer_not_received_by_recipient as pending (a transfer that has not arrived). BANKING77 has no intent meaning 'sent to the wrong account', so that class is compared between the two approaches only. Queries about pending top-ups, card payments or cash withdrawals are 'other' under both mappings; whether they are 'pending transfers' is a judgement call that the prompt leaves open, and it drives most of the false positives on both sides."
+  ],
+  "pipeline": {
+    "plan": {},
+    "planner": {},
+    "estimate": {},
+    "calibration": {},
+    "job": {
+      "job_id": null,
+      "state": null,
+      "terminal_reason": null,
+      "usage": null,
+      "progress": null,
+      "error_summary": null,
+      "errors": null
+    },
+    "step_rows": {},
+    "datasets": {},
+    "timings_seconds": {},
+    "cost": {},
+    "error": "pipeline arm not run"
+  },
+  "oneshot": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "variant": "tools",
+    "status": "completed",
+    "usage": {
+      "input_tokens": 62076,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 47753,
+      "output_tokens": 7659,
+      "reasoning_tokens": 7050,
+      "total_tokens": 69735,
+      "input_tokens_details": {
+        "cache_write_tokens": 47753,
+        "cached_tokens": 0
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 7050
+      }
+    },
+    "cost": {
+      "usd": 1.153092,
+      "tier": "short",
+      "turns": 6,
+      "input_tokens": 62076,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 47753,
+      "output_tokens": 7659,
+      "reasoning_tokens": 7050,
+      "prices_per_mtok": {
+        "input": 10.0,
+        "cached_input": 1.0,
+        "cache_write": 12.5,
+        "output": 50.0
+      },
+      "model_usd": 1.123092,
+      "container": {
+        "usd": 0.03,
+        "sessions": 1,
+        "session_usd": 0.03,
+        "billed_seconds": 300
+      }
+    },
+    "latency_seconds": 224.0,
+    "input_tokens_estimate": 46667,
+    "response_id": "resp_0204ecfde39bb916006ab241d03d5c87d2b66927f689a03a2c",
+    "error": null,
+    "raw_text_head": "{\"failed\":[1721,1723,1724,1725,1728,1729,1730,1732,1733,1734,1737,1738,1739,1741,1742,1743,1744,1745,1746,1747,1748,1749,1750,1751,1753,1754,1758,1760,2161,2162,2163,2164,2165,2168,2170,2171,2172,2174,2177,2179,2180,2181,2182,2183,2184,2185,2186,2187,2188,2191,2193,2194,2195,2197,2199,2200,2281,2282,2283,2284,2285,2286,2287,2288,2289,2290,2291,2292,2293,2294,2295,2296,2297,2298,2299,2300,2302,2303",
+    "tool_calls": 5,
+    "tool_trace": [
+      {
+        "code": "import pandas as pd, json\ndf = pd.read_csv('/mnt/data/file-4JVFkrVLZvJhHzuYsAKG4g-banking_queries.csv')\nassert df.shape == (3080, 2)\nassert df.row_id.is_unique\nrows = dict(zip(df.row_id, df.text))\ndef show(a, b):\n    for rid in df.loc[df.row_id.between(a,b),'row_id']:\n        print(f'{rid}: {rows[rid]}')\nshow(681,720)\nshow(841,880)\n",
+        "code_chars": 334,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "show(1721,1760)\nshow(1841,1880)\nshow(2041,2080)\nshow(2161,2200)\nshow(2281,2320)\nshow(2681,2720)\n",
+        "code_chars": 96,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "selected = {'failed': set(), 'wrong_account': set(), 'pending': set()}\n\nselected['wrong_account'].update([684, 686, 692, 695, 706])\n\nselected['failed'].update([\n    1721, 1723, 1724, 1725, 1728, 1729, 1730, 1732, 1733, 1734,\n    1737, 1738, 1739, 1741, 1742, 1743, 1744, 1745, 1746, 1747,\n    1748, 1749, 1750, 1751, 1753, 1754, 1758, 1760,\n    2161, 2162, 2163, 2164, 2165, 2168, 2170, 2171, 2172, 2174,\n    2177, 2179, 2180, 2181, 2182, 2183, 2184, 2185, 2186, 2187,\n    2188, 2191, 2193, 2194, 2195, 2197, 2199, 2200,\n    2281, 2282, 2283, 2284, 2285, 2286, 2287, 2288, 2289, 2290,\n    2291, 2292, 2293, 2294, 2295, 2296, 2297, 2298, 2299, 2300,\n    2302, 2303, 2304, 2305, 2306, 2307, 2308, 2309, 2310, 2311,\n    2312, 2313, 2315, 2316, 2317, 2318, 2319, 2320\n])\n\nselected['pending'].update([\n    841, 842, 844, 845, 848, 849, 851, 852, 854, 855, 856, 857,\n    858, 859, 860, 861, 862, 863, 865, 866, 872, 873, 874, 875,\n    876, 877, 878,\n    1331, 1334,\n    1841, 1843, 1844, 1845, 1846, 1847, 1848, 1849, 1850, 1851,\n    1853, 1854, 1855, 1856, 1857, 1858, 1859, 1860, 1861, 1862,\n    1863, 1864, 1865, 1866, 1868, 1870, 1871, 1872, 1873, 1874,\n    1875, 1876, 1877, 1878, 1879,\n    2041, 2044",
+        "code_chars": 1511,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "show(1321,1360)\nshow(241,280)\n",
+        "code_chars": 30,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "result = {k: sorted(int(x) for x in selected[k]) for k in ('failed', 'wrong_account', 'pending')}\nall_ids = [rid for ids in result.values() for rid in ids]\nassert len(all_ids) == len(set(all_ids))\nassert set(all_ids).issubset(set(df.row_id))\nprint(json.dumps(result))\n",
+        "code_chars": 268,
+        "outputs": [],
+        "status": "completed"
+      }
+    ],
+    "container_id": "cntr_6ab241d15a7c819183de8b3879593dbe0b2dcfd7d65f99d5",
+    "file_ids": [
+      "file-4JVFkrVLZvJhHzuYsAKG4g"
+    ],
+    "output_summary": {
+      "failed": "list[94]",
+      "wrong_account": "list[5]",
+      "pending": "list[108]"
+    }
+  },
+  "comparison": {
+    "gold_notes": [
+      "Gold classes come from the BANKING77 intents (removed from both inputs). Strict: pending_transfer -> pending; failed_transfer and declined_transfer -> failed; everything else -> other. Lenient additionally counts transfer_timing, balance_not_updated_after_bank_transfer and transfer_not_received_by_recipient as pending (a transfer that has not arrived). BANKING77 has no intent meaning 'sent to the wrong account', so that class is compared between the two approaches only. Queries about pending top-ups, card payments or cash withdrawals are 'other' under both mappings; whether they are 'pending transfers' is a judgement call that the prompt leaves open, and it drives most of the false positives on both sides."
+    ],
+    "gold_class_sizes": {
+      "strict": {
+        "other": 2960,
+        "failed": 80,
+        "pending": 40
+      },
+      "lenient": {
+        "other": 2840,
+        "pending": 160,
+        "failed": 80
+      }
+    },
+    "pipeline": {
+      "from_step": "(none)",
+      "question": "(none)",
+      "raw_labels": {},
+      "label_mapping": {},
+      "rows_labeled": 0,
+      "strict": {
+        "macro_f1": 0.0,
+        "accuracy_on_rows_in_scope": 0.0,
+        "per_class": {
+          "pending": {
+            "predicted": 0,
+            "gold": 40,
+            "tp": 0,
+            "fp": 0,
+            "fn": 40,
+            "precision": null,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "failed": {
+            "predicted": 0,
+            "gold": 80,
+            "tp": 0,
+            "fp": 0,
+            "fn": 80,
+            "precision": null,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        }
+      },
+      "lenient": {
+        "macro_f1": 0.0,
+        "accuracy_on_rows_in_scope": 0.0,
+        "per_class": {
+          "pending": {
+            "predicted": 0,
+            "gold": 160,
+            "tp": 0,
+            "fp": 0,
+            "fn": 160,
+            "precision": null,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "failed": {
+            "predicted": 0,
+            "gold": 80,
+            "tp": 0,
+            "fp": 0,
+            "fn": 80,
+            "precision": null,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        }
+      },
+      "false_positive_intents": {
+        "pending": {},
+        "failed": {}
+      },
+      "wrong_account_rows": 0,
+      "wrong_account_intents": {}
+    },
+    "oneshot": {
+      "assigned": {
+        "pending": 108,
+        "failed": 94,
+        "wrong_account": 5
+      },
+      "strict": {
+        "macro_f1": 0.6158,
+        "accuracy_on_rows_in_scope": 0.457,
+        "per_class": {
+          "pending": {
+            "predicted": 108,
+            "gold": 40,
+            "tp": 35,
+            "fp": 73,
+            "fn": 5,
+            "precision": 0.3241,
+            "recall": 0.875,
+            "f1": 0.473
+          },
+          "failed": {
+            "predicted": 94,
+            "gold": 80,
+            "tp": 66,
+            "fp": 28,
+            "fn": 14,
+            "precision": 0.7021,
+            "recall": 0.825,
+            "f1": 0.7586
+          }
+        }
+      },
+      "lenient": {
+        "macro_f1": 0.7748,
+        "accuracy_on_rows_in_scope": 0.637,
+        "per_class": {
+          "pending": {
+            "predicted": 108,
+            "gold": 160,
+            "tp": 106,
+            "fp": 2,
+            "fn": 54,
+            "precision": 0.9815,
+            "recall": 0.6625,
+            "f1": 0.791
+          },
+          "failed": {
+            "predicted": 94,
+            "gold": 80,
+            "tp": 66,
+            "fp": 28,
+            "fn": 14,
+            "precision": 0.7021,
+            "recall": 0.825,
+            "f1": 0.7586
+          }
+        }
+      },
+      "false_positive_intents": {
+        "pending": {
+          "topping_up_by_card": 2
+        },
+        "failed": {
+          "beneficiary_not_allowed": 28
+        }
+      },
+      "wrong_account_rows": 5,
+      "wrong_account_intents": {
+        "cancel_transfer": 5
+      }
+    },
+    "agreement": {
+      "n": 3080,
+      "agreement": 0.9328,
+      "kappa": 0.0,
+      "wrong_account": {
+        "both": 0,
+        "only_a": 0,
+        "only_b": 5,
+        "jaccard": 0.0
+      }
+    },
+    "examples": {
+      "disagreements": [
+        {
+          "row_id": 684,
+          "text": "I made a transaction but did it to the wrong account.",
+          "intent": "cancel_transfer",
+          "pipeline": "other",
+          "oneshot": "wrong_account"
+        },
+        {
+          "row_id": 686,
+          "text": "I need you to cancel a transfer that I made.  It is the wrong account number and the app won't let me stop the transaction.  Please stop it!",
+          "intent": "cancel_transfer",
+          "pipeline": "other",
+          "oneshot": "wrong_account"
+        },
+        {
+          "row_id": 692,
+          "text": "I accidentally made a transaction to the wrong account.",
+          "intent": "cancel_transfer",
+          "pipeline": "other",
+          "oneshot": "wrong_account"
+        },
+        {
+          "row_id": 695,
+          "text": "This is URGENT, I typed the wrong payment information for a payment I needed to make and have clicked send, I need to reverse the transactio",
+          "intent": "cancel_transfer",
+          "pipeline": "other",
+          "oneshot": "wrong_account"
+        },
+        {
+          "row_id": 706,
+          "text": "I submitted a transaction to the incorrect account.",
+          "intent": "cancel_transfer",
+          "pipeline": "other",
+          "oneshot": "wrong_account"
+        },
+        {
+          "row_id": 841,
+          "text": "I completed an in country transfer a few days ago and was sure to check the account information several times since the transaction was comp",
+          "intent": "transfer_not_received_by_recipient",
+          "pipeline": "other",
+          "oneshot": "pending"
+        },
+        {
+          "row_id": 842,
+          "text": "My money transfer has not arrived.",
+          "intent": "transfer_not_received_by_recipient",
+          "pipeline": "other",
+          "oneshot": "pending"
+        },
+        {
+          "row_id": 844,
+          "text": "I made a money transaction but the recipient can't see it",
+          "intent": "transfer_not_received_by_recipient",
+          "pipeline": "other",
+          "oneshot": "pending"
+        },
+        {
+          "row_id": 845,
+          "text": "I tried to send someone money but they haven't received it.",
+          "intent": "transfer_not_received_by_recipient",
+          "pipeline": "other",
+          "oneshot": "pending"
+        },
+        {
+          "row_id": 848,
+          "text": "I transferred money but the recipient says it has not arrived. Why would this be?",
+          "intent": "transfer_not_received_by_recipient",
+          "pipeline": "other",
+          "oneshot": "pending"
+        },
+        {
+          "row_id": 849,
+          "text": "The transfer I did hasn't arrived",
+          "intent": "transfer_not_received_by_recipient",
+          "pipeline": "other",
+          "oneshot": "pending"
+        },
+        {
+          "row_id": 851,
+          "text": "I transferred some money and it didint arrive",
+          "intent": "transfer_not_received_by_recipient",
+          "pipeline": "other",
+          "oneshot": "pending"
+        }
+      ],
+      "wrong_account_pipeline": [],
+      "wrong_account_oneshot": [
+        {
+          "row_id": 684,
+          "text": "I made a transaction but did it to the wrong account.",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 686,
+          "text": "I need you to cancel a transfer that I made.  It is the wrong account number and the app won't let me stop the transaction.  Please stop it!",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 692,
+          "text": "I accidentally made a transaction to the wrong account.",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 695,
+          "text": "This is URGENT, I typed the wrong payment information for a payment I needed to make and have clicked send, I need to reverse the transactio",
+          "intent": "cancel_transfer"
+        },
+        {
+          "row_id": 706,
+          "text": "I submitted a transaction to the incorrect account.",
+          "intent": "cancel_transfer"
+        }
+      ]
+    }
+  },
+  "generated_at": "2026-09-22T08:59:47Z"
+}

@@ -98,7 +98,8 @@ cd web && npx tsc -p tsconfig.app.json --noEmit && npm run build
 (reasoning `high`) in one request, on the six walkthrough scenarios: output quality against gold or agreement
 metrics, token usage, cost and latency. The operators were run with three planners (`gpt-6-astra`, `z-ai/glm-5.3-flash`
 and `deepseek/deepseek-v4.1-flash` via OpenRouter), plus an engine-only A/B that re-runs the DeepSeek plans with
-score-calibrated cuts (protocol pre-registered and checked on held-out rows before the run). See
+score-calibrated cuts (protocol pre-registered and checked on held-out rows before the run), and the one-shot arm was
+also rerun with the hosted code interpreter enabled (`oneshot-tools`). See
 [`benchmarks/README.md`](benchmarks/README.md) for the method and findings,
 [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for the cross-planner summary and `benchmarks/results/<run>/RESULTS.md`
 for every plan, metric and disagreement.

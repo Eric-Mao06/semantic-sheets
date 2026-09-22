@@ -1,0 +1,299 @@
+{
+  "run": "oneshot-tools",
+  "arms": [
+    "oneshot"
+  ],
+  "oneshot_variant": "tools",
+  "planner_config": null,
+  "scenario": "wdc_product_matching",
+  "title": "Product matching: offers to catalog",
+  "prompt": "Match offers to the catalog for the same exact product despite different titles.",
+  "inputs": [
+    {
+      "name": "product_offers",
+      "rows": 400,
+      "columns": [
+        "row_id",
+        "offer_id",
+        "brand",
+        "title",
+        "description",
+        "price",
+        "currency"
+      ],
+      "approx_tokens": 21355
+    },
+    {
+      "name": "product_catalog",
+      "rows": 598,
+      "columns": [
+        "catalog_id",
+        "brand",
+        "title",
+        "description",
+        "price",
+        "currency"
+      ],
+      "approx_tokens": 31847
+    }
+  ],
+  "notes": [
+    "400 offers, each with exactly one true match among 598 catalog entries (WDC gold standard); every other catalog entry is a different product. 0 catalog entries that were the offers' own identical records were removed first. The cluster_id and true_catalog_id columns were removed from both inputs."
+  ],
+  "pipeline": {
+    "plan": {},
+    "planner": {},
+    "estimate": {},
+    "calibration": {},
+    "job": {
+      "job_id": null,
+      "state": null,
+      "terminal_reason": null,
+      "usage": null,
+      "progress": null,
+      "error_summary": null,
+      "errors": null
+    },
+    "step_rows": {},
+    "datasets": {},
+    "timings_seconds": {},
+    "cost": {},
+    "error": "pipeline arm not run"
+  },
+  "oneshot": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "variant": "tools",
+    "status": "completed",
+    "usage": {
+      "input_tokens": 128684,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 68020,
+      "output_tokens": 17411,
+      "reasoning_tokens": 12344,
+      "total_tokens": 146095,
+      "input_tokens_details": {
+        "cache_write_tokens": 68020,
+        "cached_tokens": 0
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 12344
+      }
+    },
+    "cost": {
+      "usd": 2.35744,
+      "tier": "short",
+      "turns": 16,
+      "input_tokens": 128684,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 68020,
+      "output_tokens": 17411,
+      "reasoning_tokens": 12344,
+      "prices_per_mtok": {
+        "input": 10.0,
+        "cached_input": 1.0,
+        "cache_write": 12.5,
+        "output": 50.0
+      },
+      "model_usd": 2.32744,
+      "container": {
+        "usd": 0.03,
+        "sessions": 1,
+        "session_usd": 0.03,
+        "billed_seconds": 436.4
+      }
+    },
+    "latency_seconds": 436.4,
+    "input_tokens_estimate": 53628,
+    "response_id": "resp_0476a09f3f290ac1006ab241d0e74487d28d06cce9dd65cf65",
+    "error": null,
+    "raw_text_head": "{\"matches\":[{\"offer_id\":85137108,\"catalog_id\":7218865},{\"offer_id\":48406238,\"catalog_id\":17212553},{\"offer_id\":35165067,\"catalog_id\":18787691},{\"offer_id\":20370090,\"catalog_id\":54933824},{\"offer_id\":4493835,\"catalog_id\":28556391},{\"offer_id\":34868774,\"catalog_id\":15071592},{\"offer_id\":11912295,\"catalog_id\":89829635},{\"offer_id\":7066688,\"catalog_id\":2353834},{\"offer_id\":42864051,\"catalog_id\":267407",
+    "tool_calls": 15,
+    "tool_trace": [
+      {
+        "code": "import pandas as pd, json\noffers=pd.read_csv('/mnt/data/file-HieAXim3LUov6w8ui9jQXC-product_offers.csv').fillna('')\ncat=pd.read_csv('/mnt/data/file-XW3xXiHnEzC2LZCPnADm91-product_catalog.csv').fillna('')\nprint(len(offers),len(cat))\ncm=cat.set_index('catalog_id')\nom=offers.set_index('row_id')\nmatches={}\ndef put(d):\n    for r,c in d.items():\n        assert r in om.index and c in cm.index\n        assert r not in matches\n        matches[r]=c\ndef showcat(ids):\n    for c in ids:\n        print(c,cm.loc[c,'title'], '|',cm.loc[c,'description'])\ndef cats(s):\n    # retrieval only, decisions by reading\n    x=cat[(cat.title+' '+cat.description).str.contains(s,case=False,regex=True)]\n    for _,r in x.iterrows(): print(r.catalog_id, r.title,'|',r.description)\ndef chunk(start,end):\n    for r,row in om.loc[start:end].iterrows():\n        print(r,row.offer_id, row.title,'|',row.description)\nchunk(1,50)\n",
+        "code_chars": 897,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "put({1:7218865,2:17212553,3:18787691,4:54933824,5:28556391,6:15071592,\n9:89829635,10:2353834,11:26740796,12:68284224,13:26099517,14:60131715,15:68374441,16:26060342,\n17:60359264,18:78303938,19:43618856,20:51760904,21:16691545,22:3777655,23:22821574,24:67725254,\n25:70265673,26:53299737,27:22154247,28:48093720,29:41453265,30:9138065,32:43227294,33:30151389,\n34:58023892,35:22150807,36:85021449,37:47959304,38:71230707,39:35792541,40:9907839,41:80792673,\n42:19499147,43:25537521,44:13845553,45:7309472,47:5089485,48:64928819,49:47385841})\nchunk(51,100)\n",
+        "code_chars": 552,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "put({51:53125631,52:75251439,53:18451047,54:80918812,55:11096579,56:78241304,57:88715660,\n58:17553753,59:78116281,60:46088087,61:3954683,62:67422473,63:63542010,64:20813006,\n65:24366661,66:17631479,67:74983296,68:17236806,69:1446199,70:34986650,71:33088663,\n73:78438382,74:9632109,75:35350872,76:43979051,78:14035013,79:20044617,80:47121877,\n81:26567011,82:28956719,83:42544495,84:95558103,85:34298415,86:88950114,87:7916004,88:80240194,\n89:77791574,90:86407819,91:37083729,92:21012462,93:67415262,95:53380330,96:75486692,\n97:5576199,98:23699673,99:51766259,100:22463957})\nchunk(101,150)\n",
+        "code_chars": 588,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "put({101:90951828,102:43900336,103:457768,104:5650508,105:8060977,106:40163790,107:14132157,\n108:84301060,109:11658050,110:12333156,111:96980573,112:44201512,113:45664586,114:1291443,\n115:54722844,116:89973207,117:9646081,118:8921864,120:2244475,122:23279983,123:15724231,\n124:87945154,125:25817481,127:8387371,128:30114774,129:45187816,130:86739887,132:77697394,\n133:13129556,134:7900674,135:10108569,136:23313027,137:70805675,138:22638951,139:41293728,\n140:25251155,142:98866039,143:36157293,144:40180230,145:66271987,146:31552844,147:95351023,\n148:61690853,149:84771715,150:68792553})\nchunk(151,200)\n",
+        "code_chars": 603,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "put({151:35860022,152:46030392,153:18057818,154:72910194,155:18996777,156:4984777,\n157:90938642,158:83528218,159:89749927,161:25607937,162:75852884,163:32932210,164:47478087,\n165:60359264,166:36800658,167:10484404,169:54746544,170:33520763,172:11565762,173:78504460,\n174:14979345,175:62380727,176:37431252,177:13546282,178:220243,179:64197093,180:23346990,\n181:31517280,182:79883238,183:55201507,184:68519995,185:13950014,186:68865061,187:92746462,\n189:56392806,190:91975856,191:1766796,192:8680758,193:64888074,194:54710391,195:25138178,\n196:38788118,197:27761736,198:21266898,199:57306118})\nchunk(201,250)\n",
+        "code_chars": 608,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "put({201:14737778,202:48390119,203:80932957,204:62345625,206:29457595,207:34472445,\n208:81179017,209:71989322,210:36866967,211:34961217,213:59671298,214:8757303,215:1938345,\n216:2071835,218:59929353,220:63587638,221:21367693,222:76532384,223:71130653,224:32421414,\n225:91421108,226:13883364,228:46158383,229:24300732,230:41608931,231:84836014,232:40225828,\n233:6032942,234:38415767,235:41978210,236:1823563,237:23336476,238:87392550,239:68075793,\n240:72310020,241:98358005,243:68876228,244:20148664,245:2950848,246:68849162,247:25340730,\n248:15506125,249:87653966,250:71942027})\nchunk(251,300)\n",
+        "code_chars": 594,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "put({252:28830600,253:84407354,254:16234006,255:92349368,256:7406291,257:90202399,\n258:40916385,261:56993303,262:65208205,263:92956756,264:52216082,265:87112730,266:69401250,\n267:2251660,270:57728272,271:93018058,272:29653526,273:18824446,274:87238244,275:25369954,\n276:38112967,277:6214990,278:42351173,279:87636038,281:15348795,282:43498383,283:23158552,\n284:6988926,285:19673382,286:14864012,287:74965852,288:64191452,290:30120490,291:72310020,\n292:47886079,294:71951492,295:2214493,296:58461375,297:5680655,298:27263164,299:8713688,300:74270481})\nchunk(301,350)\n",
+        "code_chars": 566,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "put({301:29412015,302:51760904,303:18351112,304:93938575,305:38874870,306:86065131,\n307:19735735,308:43259056,309:2089105,310:41174280,311:10005140,312:54362555,313:51385541,\n314:41132816,315:59617619,316:94578154,317:46518287,318:10320617,319:88555676,\n321:75242176,322:16282417,323:71514700,324:91421555,325:25758152,326:17390600,327:32292330,\n328:33130244,329:97294565,331:41364197,332:42906184,333:44737753,334:7993978,335:41834837,\n336:36616040,337:13684723,338:42545635,340:72004049,341:15393429,342:8401004,344:625440,\n345:34298415,347:29316472,348:70351063,349:69281741,350:45677006})\nchunk(351,400)\n",
+        "code_chars": 608,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "print(max(matches))\nput({325:25758185,326:17390600,327:32292330,328:33130244,329:97294565,331:41364197,\n332:42906184,333:44737753,334:7993978,335:41834837,336:36616040,337:13684723,338:42545635,\n340:72004049,341:15393429,342:8401004,344:625440,345:34298415,347:29316472,348:70351063,\n349:69281741,350:45677006})\nchunk(351,400)\n",
+        "code_chars": 327,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "put({351:10492407,352:65657820,353:90938642,354:55645617,355:13125570,357:68444336,\n358:21293905,359:25175603,360:71275365,362:31785582,363:9940059,364:13110023,365:94367933,\n366:87567643,367:7114245,368:80380534,369:31785582,370:16338439,371:19543686,372:30633820,\n373:18159593,374:58597448,375:88973968,376:45620476,378:22745274,379:27210717,380:10155621,\n381:21918296,382:72029794,383:42191064,384:1425916,385:10899164,386:30523276,387:65837617,\n388:49769546,390:25641839,391:80212720,393:15529664,394:26140067,395:13899039,396:75223780,\n397:81830866,398:65504542,399:72955297,400:12706433})\nprint('Matched',len(matches))\nprint('Unmatched')\nfor r,row in om.iterrows():\n    if r not in matches: print(r,row.offer_id,row.title)\n",
+        "code_chars": 729,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "cats(r'Privacy|3M -')\n",
+        "code_chars": 22,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "for r,c in sorted(matches.items()):\n    print(f\"{r} {om.loc[r,'title']} == {c} {cm.loc[c,'title']}\")\n",
+        "code_chars": 101,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "cats(r'Jabra')\n",
+        "code_chars": 15,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "put({242:48868171,268:2493882,269:5576199})\nlen(matches)\n",
+        "code_chars": 57,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "result={\"matches\":[{\"offer_id\":int(om.loc[r,'offer_id']),\"catalog_id\":int(c)} for r,c in sorted(matches.items())]}\nassert len({m['offer_id'] for m in result[\"matches\"]})==len(matches)\nprint(json.dumps(result,separators=(',',':')))\n",
+        "code_chars": 231,
+        "outputs": [],
+        "status": "completed"
+      }
+    ],
+    "container_id": "cntr_6ab241d257788191b943652eddcf87490e843d29a4c9e87f",
+    "file_ids": [
+      "file-HieAXim3LUov6w8ui9jQXC",
+      "file-XW3xXiHnEzC2LZCPnADm91"
+    ],
+    "output_summary": {
+      "matches": "list[361]"
+    }
+  },
+  "comparison": {
+    "notes": [
+      "400 offers, each with exactly one true match among 598 catalog entries (WDC gold standard); every other catalog entry is a different product. 0 catalog entries that were the offers' own identical records were removed first. The cluster_id and true_catalog_id columns were removed from both inputs."
+    ],
+    "gold_pairs": 400,
+    "pipeline": {
+      "pairs": 0,
+      "status_counts": {},
+      "tp": 0,
+      "fp": 0,
+      "fn": 400,
+      "precision": null,
+      "recall": 0.0,
+      "f1": 0.0,
+      "diagnostics": {}
+    },
+    "oneshot": {
+      "pairs": 361,
+      "tp": 349,
+      "fp": 12,
+      "fn": 51,
+      "precision": 0.9668,
+      "recall": 0.8725,
+      "f1": 0.9172
+    },
+    "agreement": {
+      "both": 0,
+      "only_a": 0,
+      "only_b": 361,
+      "jaccard": 0.0
+    },
+    "examples": {
+      "pipeline_wrong": [],
+      "oneshot_wrong": [
+        {
+          "offer_id": 5578260,
+          "title": "Jabra Biz 2300 USB Duo Headset",
+          "chosen": 47886079,
+          "gold": 90972374
+        },
+        {
+          "offer_id": 10096449,
+          "title": "21 oz Standard Mouth Water Bottle",
+          "chosen": 10899164,
+          "gold": 28179113
+        },
+        {
+          "offer_id": 29909599,
+          "title": "Zebra Black Printer Ribbon for P310F, P310C, P420C, P520C & P720C ID Card Printe",
+          "chosen": 90938642,
+          "gold": 50368196
+        },
+        {
+          "offer_id": 34868774,
+          "title": "Audemars Piguet Royal Oak Offshore Chronograph 42mm",
+          "chosen": 15071592,
+          "gold": 23249222
+        },
+        {
+          "offer_id": 41616522,
+          "title": "TP-Link EAP225-Outdoor Wireless-AC1200 MU-MIMO Gigabit Indoor/Outdoor Access Poi",
+          "chosen": 31785582,
+          "gold": 36061219
+        },
+        {
+          "offer_id": 43630137,
+          "title": "Jabra BIZ 2400 II Mono 3-1 - Mic. 82 NC, Wideband",
+          "chosen": 51760904,
+          "gold": 19751845
+        },
+        {
+          "offer_id": 51758990,
+          "title": "Seamaster Planet Ocean 600m Automatic Chronometer Chronograph Men's Watch",
+          "chosen": 25758185,
+          "gold": 66020255
+        },
+        {
+          "offer_id": 51855709,
+          "title": "Western Digital Dysk MY PASSPORT 1TB 2,5 black WDBYVG0010BBK-WESN",
+          "chosen": 34298415,
+          "gold": 50944297
+        }
+      ]
+    }
+  },
+  "generated_at": "2026-09-22T08:59:47Z"
+}

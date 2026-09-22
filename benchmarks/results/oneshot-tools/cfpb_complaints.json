@@ -1,0 +1,236 @@
+{
+  "run": "oneshot-tools",
+  "arms": [
+    "oneshot"
+  ],
+  "oneshot_variant": "tools",
+  "planner_config": null,
+  "scenario": "cfpb_complaints",
+  "title": "Consumer complaints: filter then rank by urgency",
+  "prompt": "Find complaints about charges continuing after cancellation or unauthorized recurring charges, then rank by urgency.",
+  "inputs": [
+    {
+      "name": "consumer_complaints",
+      "rows": 5000,
+      "columns": [
+        "row_id",
+        "Date received",
+        "Product",
+        "Sub-product",
+        "Issue",
+        "Sub-issue",
+        "Company",
+        "State"
+      ],
+      "approx_tokens": 205785
+    }
+  ],
+  "notes": [
+    "The full 5,000-row demo sample (8 of the 15 columns).",
+    "The 2026 CFPB export has no free-text narratives; both approaches judge the Product / Issue / Sub-issue text, so matches are rare. There is no gold label; 169 rows carry a topical keyword (unauthorized / cancel / recurring / continuing / can't stop withdrawals) and the share of selected rows carrying one is reported only as a sanity check."
+  ],
+  "pipeline": {
+    "plan": {},
+    "planner": {},
+    "estimate": {},
+    "calibration": {},
+    "job": {
+      "job_id": null,
+      "state": null,
+      "terminal_reason": null,
+      "usage": null,
+      "progress": null,
+      "error_summary": null,
+      "errors": null
+    },
+    "step_rows": {},
+    "datasets": {},
+    "timings_seconds": {},
+    "cost": {},
+    "error": "pipeline arm not run"
+  },
+  "oneshot": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "variant": "tools",
+    "status": "completed",
+    "usage": {
+      "input_tokens": 213351,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 208088,
+      "output_tokens": 1236,
+      "reasoning_tokens": 1194,
+      "total_tokens": 214587,
+      "input_tokens_details": {
+        "cache_write_tokens": 208088,
+        "cached_tokens": 0
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 1194
+      }
+    },
+    "cost": {
+      "usd": 2.74553,
+      "tier": "short",
+      "turns": 4,
+      "input_tokens": 213351,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 208088,
+      "output_tokens": 1236,
+      "reasoning_tokens": 1194,
+      "prices_per_mtok": {
+        "input": 10.0,
+        "cached_input": 1.0,
+        "cache_write": 12.5,
+        "output": 50.0
+      },
+      "model_usd": 2.71553,
+      "container": {
+        "usd": 0.03,
+        "sessions": 1,
+        "session_usd": 0.03,
+        "billed_seconds": 300
+      }
+    },
+    "latency_seconds": 54.8,
+    "input_tokens_estimate": 206153,
+    "response_id": "resp_0c2fbb6fdd4573a0006ab241d0ab7887d2bb30521f4093cbc5",
+    "error": null,
+    "raw_text_head": "{\"ranked_row_ids\":[1954,4558,1951,2631,3093,4254,4064,1863]}",
+    "tool_calls": 3,
+    "tool_trace": [
+      {
+        "code": "import pandas as pd, json\np = '/mnt/data/file-QYsnfgBhi3ZRPF5YRiEuja-consumer_complaints.csv'\ndf = pd.read_csv(p, keep_default_na=False)\nprint(df.shape)\npairs = df.groupby(['Issue','Sub-issue'], sort=True, dropna=False).size()\nfor (issue, sub), n in pairs.items():\n    print(f'{n} | {issue} | {sub}')\n",
+        "code_chars": 301,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "review_pairs = {\n(\"Can't stop withdrawals from your bank account\", \"\"),\n(\"Problem with a lender or other company charging your account\", \"Can't stop withdrawals from your account\"),\n(\"Credit monitoring or identity theft protection services\", \"Problem canceling credit monitoring or identify theft protection service\"),\n(\"Credit monitoring or identity theft protection services\", \"Billing dispute for services\"),\n(\"Unauthorized withdrawals or charges\", \"\"),\n}\nreview = df[[ (i,s) in review_pairs for i,s in zip(df['Issue'],df['Sub-issue']) ]]\nprint(review.to_csv(index=False))\n",
+        "code_chars": 576,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "matching_pairs = {\n    (\"Can't stop withdrawals from your bank account\", \"\"),\n    (\"Problem with a lender or other company charging your account\", \"Can't stop withdrawals from your account\"),\n}\nselected_ids = []\nfor row in df.to_dict('records'):\n    if (row['Issue'], row['Sub-issue']) in matching_pairs:\n        selected_ids.append(row['row_id'])\nmatches = df[df['row_id'].isin(selected_ids)].copy()\nmatches['urgency'] = [2 if p == 'Payday loan' else 1 for p in matches['Sub-product']]\nranked = matches.sort_values(['urgency','Date received','row_id'], ascending=[False,False,True])\nanswer = {\"ranked_row_ids\": ranked['row_id'].tolist()}\nprint(json.dumps(answer))\n",
+        "code_chars": 665,
+        "outputs": [],
+        "status": "completed"
+      }
+    ],
+    "container_id": "cntr_6ab241d21f0881918aa319ddd45198310139e719a4a0d241",
+    "file_ids": [
+      "file-QYsnfgBhi3ZRPF5YRiEuja"
+    ],
+    "output_summary": {
+      "ranked_row_ids": "list[8]"
+    }
+  },
+  "comparison": {
+    "notes": [
+      "The full 5,000-row demo sample (8 of the 15 columns).",
+      "The 2026 CFPB export has no free-text narratives; both approaches judge the Product / Issue / Sub-issue text, so matches are rare. There is no gold label; 169 rows carry a topical keyword (unauthorized / cancel / recurring / continuing / can't stop withdrawals) and the share of selected rows carrying one is reported only as a sanity check."
+    ],
+    "pipeline": {
+      "selected": 0,
+      "from_step": "(none)",
+      "keyword_rows_selected": 0,
+      "keyword_share": null,
+      "review_view": {},
+      "oneshot_rows_in_review_view": 0,
+      "review_view_rows_with_keyword": 0,
+      "top_10": []
+    },
+    "oneshot": {
+      "selected": 8,
+      "keyword_rows_selected": 8,
+      "keyword_share": 1.0,
+      "top_10": [
+        {
+          "row_id": 1954,
+          "text": "Payday loan, title loan, personal loan, or advance loan | Can't stop withdrawals from your bank account | "
+        },
+        {
+          "row_id": 4558,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 1951,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 2631,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 3093,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 4254,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 4064,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 1863,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        }
+      ]
+    },
+    "agreement": {
+      "both": 0,
+      "only_a": 0,
+      "only_b": 8,
+      "jaccard": 0.0,
+      "rank_spearman_on_common": {
+        "n": 0,
+        "rho": null
+      },
+      "top_20_overlap": {
+        "k": 20,
+        "overlap": 0
+      }
+    },
+    "examples": {
+      "only_pipeline": [],
+      "only_oneshot": [
+        {
+          "row_id": 1863,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 1951,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 1954,
+          "text": "Payday loan, title loan, personal loan, or advance loan | Can't stop withdrawals from your bank account | "
+        },
+        {
+          "row_id": 2631,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 3093,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 4064,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 4254,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        },
+        {
+          "row_id": 4558,
+          "text": "Checking or savings account | Problem with a lender or other company charging your account | Can't stop withdrawals from your account"
+        }
+      ]
+    }
+  },
+  "generated_at": "2026-09-22T08:59:47Z"
+}

@@ -1,0 +1,262 @@
+{
+  "run": "oneshot-tools",
+  "arms": [
+    "oneshot"
+  ],
+  "oneshot_variant": "tools",
+  "planner_config": null,
+  "scenario": "airbnb_reviews",
+  "title": "Airbnb reviews: unreliable Wi-Fi, grouped by property",
+  "prompt": "Find reviews reporting unreliable Wi-Fi, group by property, and compare nightly prices.",
+  "inputs": [
+    {
+      "name": "airbnb_reviews",
+      "rows": 1200,
+      "columns": [
+        "row_id",
+        "listing_id",
+        "listing_name",
+        "neighbourhood",
+        "borough",
+        "room_type",
+        "nightly_price",
+        "comments"
+      ],
+      "approx_tokens": 111272
+    }
+  ],
+  "notes": [
+    "Bounded to 1200 reviews (many languages) so the one-shot request fits comfortably in context: all 70 reviews in the 5,000-review sample that mention Wi-Fi / internet at all (positive or negative) plus 1130 random others, shuffled. No gold label; the keyword share is reported as a sanity check (a review can report bad Wi-Fi without using the word, and most Wi-Fi mentions are positive)."
+  ],
+  "pipeline": {
+    "plan": {},
+    "planner": {},
+    "estimate": {},
+    "calibration": {},
+    "job": {
+      "job_id": null,
+      "state": null,
+      "terminal_reason": null,
+      "usage": null,
+      "progress": null,
+      "error_summary": null,
+      "errors": null
+    },
+    "step_rows": {},
+    "datasets": {},
+    "timings_seconds": {},
+    "cost": {},
+    "error": "pipeline arm not run"
+  },
+  "oneshot": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "variant": "tools",
+    "status": "completed",
+    "usage": {
+      "input_tokens": 116794,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 109534,
+      "output_tokens": 2831,
+      "reasoning_tokens": 1911,
+      "total_tokens": 119625,
+      "input_tokens_details": {
+        "cache_write_tokens": 109534,
+        "cached_tokens": 0
+      },
+      "output_tokens_details": {
+        "reasoning_tokens": 1911
+      }
+    },
+    "cost": {
+      "usd": 1.613325,
+      "tier": "short",
+      "turns": 5,
+      "input_tokens": 116794,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 109534,
+      "output_tokens": 2831,
+      "reasoning_tokens": 1911,
+      "prices_per_mtok": {
+        "input": 10.0,
+        "cached_input": 1.0,
+        "cache_write": 12.5,
+        "output": 50.0
+      },
+      "model_usd": 1.583325,
+      "container": {
+        "usd": 0.03,
+        "sessions": 1,
+        "session_usd": 0.03,
+        "billed_seconds": 300
+      }
+    },
+    "latency_seconds": 80.0,
+    "input_tokens_estimate": 111664,
+    "response_id": "resp_078192608d5c7e6e006ab241cfe96887d2b62e0a13bf0e18c0",
+    "error": null,
+    "raw_text_head": "{\n  \"properties\": [\n    {\n      \"listing_name\": \"Private Room close to the city\",\n      \"nightly_price\": 88.54,\n      \"listing_id\": \"21325259\",\n      \"review_count\": 1\n    },\n    {\n      \"listing_name\": \"Stylish Private Studio In NYC\",\n      \"nightly_price\": 134.17,\n      \"listing_id\": \"5663222\",\n      \"review_count\": 1\n    },\n    {\n      \"listing_name\": \"Charming Murray Hill Studio, NYC\",\n      \"",
+    "tool_calls": 4,
+    "tool_trace": [
+      {
+        "code": "import csv, json\nfrom decimal import Decimal\npath = '/mnt/data/file-UQVHEGocrtVvZSx5XNykxy-airbnb_reviews.csv'\nwith open(path, newline='', encoding='utf-8') as f:\n    reviews = list(csv.DictReader(f))\nlen(reviews), list(reviews[0])\n",
+        "code_chars": 232,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "candidate_ids = [13,85,132,166,253,296,317,475,519,537,543,621,664,744,832,995,1107]\nby_id = {int(r[\"row_id\"]):r for r in reviews}\nfor row_id in candidate_ids + [953,1054]:\n    r = by_id[row_id]\n    print(json.dumps({k:r[k] for k in ['row_id','listing_id','listing_name','nightly_price','comments']},ensure_ascii=False))\n",
+        "code_chars": 321,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "from collections import defaultdict\nall_by_listing = defaultdict(list)\nfor r in reviews:\n    all_by_listing[r[\"listing_id\"]].append(r)\n\nfor row_id in candidate_ids:\n    r = by_id[row_id]\n    group = all_by_listing[r[\"listing_id\"]]\n    print(r[\"listing_id\"], [(a[\"row_id\"], a[\"nightly_price\"]) for a in group])\n",
+        "code_chars": 310,
+        "outputs": [],
+        "status": "completed"
+      },
+      {
+        "code": "selected_ids = set(candidate_ids)\nselected = [r for r in reviews if int(r['row_id']) in selected_ids]\ngroups = defaultdict(list)\nfor r in selected:\n    groups[r['listing_id']].append(r)\n\nproperties = []\nfor listing_id, rows in groups.items():\n    raw_prices = {r[\"nightly_price\"] for r in all_by_listing[listing_id] if r[\"nightly_price\"]}\n    assert len(raw_prices) <= 1\n    price = float(Decimal(next(iter(raw_prices)).replace(\"$\",\"\").replace(\",\",\"\"))) if raw_prices else None\n    properties.append({\n        \"listing_name\": rows[0][\"listing_name\"],\n        \"nightly_price\": price,\n        \"listing_id\": listing_id,\n        \"review_count\": len(rows)\n    })\nproperties.sort(key=lambda p: (p['nightly_price'] is None, p['nightly_price'] if p['nightly_price'] is not None else 0, p['listing_id']))\nanswer = {\n    \"wifi_review_row_ids\": sorted(int(r[\"row_id\"]) for r in selected),\n    \"properties\": properties\n}\nassert sum(p[\"review_count\"] for p in properties) == len(selected)\nprint(json.dumps(answer, ensure_ascii=False, indent=2))\n",
+        "code_chars": 1032,
+        "outputs": [],
+        "status": "completed"
+      }
+    ],
+    "container_id": "cntr_6ab241d18518819189d6276267021d560d212b4b9c165102",
+    "file_ids": [
+      "file-UQVHEGocrtVvZSx5XNykxy"
+    ],
+    "output_summary": {
+      "properties": "list[17]",
+      "wifi_review_row_ids": "list[17]"
+    }
+  },
+  "comparison": {
+    "notes": [
+      "Bounded to 1200 reviews (many languages) so the one-shot request fits comfortably in context: all 70 reviews in the 5,000-review sample that mention Wi-Fi / internet at all (positive or negative) plus 1130 random others, shuffled. No gold label; the keyword share is reported as a sanity check (a review can report bad Wi-Fi without using the word, and most Wi-Fi mentions are positive)."
+    ],
+    "pipeline": {
+      "flagged_reviews": 0,
+      "from_step": "(none)",
+      "keyword_share": null,
+      "review_view": {},
+      "properties": 0,
+      "aggregate_check": {
+        "aggregate_step": null
+      },
+      "top_properties": []
+    },
+    "oneshot": {
+      "flagged_reviews": 17,
+      "keyword_share": 1.0,
+      "properties_claimed": 17,
+      "properties_implied_by_its_flags": 17,
+      "claimed_properties_matching_its_flags": 17,
+      "review_counts_consistent": 17,
+      "nightly_prices_correct": 16,
+      "top_properties": [
+        {
+          "listing_name": "Private Room close to the city",
+          "nightly_price": 88.54,
+          "listing_id": "21325259",
+          "review_count": 1
+        },
+        {
+          "listing_name": "Stylish Private Studio In NYC",
+          "nightly_price": 134.17,
+          "listing_id": "5663222",
+          "review_count": 1
+        },
+        {
+          "listing_name": "Charming Murray Hill Studio, NYC",
+          "nightly_price": 135.19,
+          "listing_id": "46413888",
+          "review_count": 1
+        },
+        {
+          "listing_name": "Amazing Micro Unit W/ communal rooftop and kitchen",
+          "nightly_price": 165.0,
+          "listing_id": "37122502",
+          "review_count": 1
+        },
+        {
+          "listing_name": "NYC║2 Bedroom 2 BA║ FREE Garage Parking",
+          "nightly_price": 211.09,
+          "listing_id": "41173094",
+          "review_count": 1
+        },
+        {
+          "listing_name": "Very Comfy, Airy and Spacious, TV In Every Room!",
+          "nightly_price": 228.33,
+          "listing_id": "48721300",
+          "review_count": 1
+        },
+        {
+          "listing_name": "KLO Room #6 With Private Bathroom",
+          "nightly_price": 258.0,
+          "listing_id": "7919372",
+          "review_count": 1
+        },
+        {
+          "listing_name": "Perfectly Situated Bay Ridge Studio",
+          "nightly_price": 287.0,
+          "listing_id": "1173237288996322274",
+          "review_count": 1
+        }
+      ]
+    },
+    "agreement": {
+      "reviews": {
+        "both": 0,
+        "only_a": 0,
+        "only_b": 17,
+        "jaccard": 0.0
+      },
+      "properties": {
+        "both": 0,
+        "only_a": 0,
+        "only_b": 17,
+        "jaccard": 0.0
+      }
+    },
+    "examples": {
+      "only_pipeline": [],
+      "only_oneshot": [
+        {
+          "row_id": 13,
+          "text": "Great location, roof is wonderful, easy check in and check out. Rooms are definitely small, but good for one person. Bathroom was clean, bed"
+        },
+        {
+          "row_id": 85,
+          "text": "Mooi, ruim appartement, van alle gemakken voorzien. Dichtbij het metrostation.<br/>Angelo reageerde snel op mijn vragen. <br/>Zou hier zeker"
+        },
+        {
+          "row_id": 132,
+          "text": "O espaço é bom, é possível preparar suas refeições, é muito perto do metrô, por outro lado o wi-fi não pega muito bem e o banheiro entope."
+        },
+        {
+          "row_id": 166,
+          "text": "Great location super close to subway stations, and the host was always quick to respond to my messages. The apartment is small but still con"
+        },
+        {
+          "row_id": 253,
+          "text": "The place is wonderfully kept and has great ambience. Necessities like towels, kitchen utensils and such are easily accessible. The girlfrie"
+        },
+        {
+          "row_id": 296,
+          "text": "We took 2 teenagers, 2 early 20’s and us big kids to the Big Apple for a few days after Christmas. The City didn’t disappoint. <br/>I would "
+        },
+        {
+          "row_id": 317,
+          "text": "Fatou’s house is in a strategic spot, near MTA stations and with lots of restaurants/shops around. <br/>The room was smaller and older than "
+        },
+        {
+          "row_id": 475,
+          "text": "Nice large apartment with underground parking for one car (must be small-not sure if a large SUV would fit). The internet was spotty on some"
+        }
+      ]
+    }
+  },
+  "generated_at": "2026-09-22T08:59:47Z"
+}

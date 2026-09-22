@@ -9,7 +9,7 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from common import ASTRA_PRICES, JEV_PRICE_PER_MTOK_INPUT, LONG_CONTEXT_INPUT_TOKENS, PLANNER_PRICES, RESULTS_DIR  # noqa: E402
+from common import ASTRA_PRICES, CONTAINER_SESSION_USD, JEV_PRICE_PER_MTOK_INPUT, LONG_CONTEXT_INPUT_TOKENS, PLANNER_PRICES, RESULTS_DIR  # noqa: E402
 
 ORDER = ["support_requests", "banking_queries", "cfpb_complaints", "airbnb_reviews", "retail_gift_categories", "wdc_product_matching"]
 RUN_ORDER = ["planner-gpt-6-astra", "planner-glm-5.3-flash-run1", "planner-glm-5.3-flash", "planner-deepseek-v4.1-flash", "planner-deepseek-v4.1-flash-calibrated"]
@@ -185,8 +185,9 @@ def _price_line() -> str:
     pl = ASTRA_PRICES["long"]
     glm = PLANNER_PRICES["z-ai/glm-5.3-flash"]
     ds = PLANNER_PRICES["deepseek/deepseek-v4.1-flash"]
-    return (f"Prices used (list, 2026-09-21): gpt-6-astra ${p['input']:.2f} / M input, ${p['cached_input']:.2f} / M cached input, ${p['output']:.2f} / M output "
+    return (f"Prices used (list, 2026-09-21): gpt-6-astra ${p['input']:.2f} / M input, ${p['cached_input']:.2f} / M cached input, ${p['cache_write']:.2f} / M cache-write input, ${p['output']:.2f} / M output "
             f"(reasoning tokens bill as output; requests over {LONG_CONTEXT_INPUT_TOKENS:,} input tokens reprice to ${pl['input']:.2f} / ${pl['output']:.2f}); "
+            f"hosted code interpreter container ${CONTAINER_SESSION_USD:.2f} per 20-minute session (5-minute minimum); "
             f"z-ai/glm-5.3-flash via OpenRouter ${glm['input']:.2f} / M input, ${glm['output']:.2f} / M output; "
             f"deepseek/deepseek-v4.1-flash via OpenRouter (Together) ${ds['input']:.2f} / M input, ${ds['output']:.2f} / M output, using OpenRouter's reported cost when it returns one; "
             f"jev-1.13.0 ${JEV_PRICE_PER_MTOK_INPUT} / M input, output free. Costs are computed from the token usage each API reported.\n")
@@ -278,18 +279,120 @@ def _load_run(run_dir: Path) -> list[dict[str, Any]]:
     return results
 
 
-def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
+def _is_oneshot_only(results: list[dict[str, Any]]) -> bool:
+    """A run that exercised only the one-shot arm (e.g. `oneshot-tools`); older runs carry no `arms` field and are operator runs."""
+    return bool(results) and "pipeline" not in (results[0].get("arms") or ["pipeline", "oneshot"])
+
+
+def _oneshot_label(results: list[dict[str, Any]]) -> str:
+    v = results[0].get("oneshot_variant") or "text"
+    return "One-shot + code interpreter (gpt-6-astra)" if v == "tools" else f"One-shot `{v}` (gpt-6-astra)"
+
+
+def _oneshot_cost_cell(r: dict[str, Any]) -> str:
+    o = r["oneshot"]
+    oc = o.get("cost") or {}
+    s = f"**{_usd(oc.get('usd'))}**"
+    if oc.get("container"):
+        s += f" ({_usd(oc.get('model_usd'))} model + {_usd(oc['container'].get('usd'))} container)"
+    s += f" · {_latency(r)[1]}"
+    if o.get("variant") == "tools":
+        s += f" · {o.get('tool_calls') or 0} tool calls"
+    return s
+
+
+def render_oneshot_run(results: list[dict[str, Any]], baseline: list[dict[str, Any]]) -> str:
+    """Per-run RESULTS.md for a one-shot-only run: the variant next to the plain one-shot baseline, scenario by scenario."""
+    run = results[0].get("run") or ""
+    variant = results[0].get("oneshot_variant") or "text"
+    base_by = {x["scenario"]: x for x in baseline}
+    out: list[str] = []
+    out.append(f"# Benchmark run `{run}`: one-shot gpt-6-astra with the code interpreter\n" if variant == "tools" else f"# Benchmark run `{run}`: one-shot gpt-6-astra (`{variant}`)\n")
+    if variant == "tools":
+        out.append("The same prompt and the same inline CSV as the plain one-shot arm, plus the hosted **code interpreter** with the CSV files mounted in the "
+                   "container, so the model can run Python for the exact work (counts, sums, joins, sorting, assembling the JSON) while still reading every row for the "
+                   "semantic judgements. Still one Responses API request (reasoning `high`, strict JSON schema); the tool loop runs server-side and the reported usage "
+                   "covers every model turn. Cost adds the container session ($0.03 per 20 minutes, 5-minute minimum) and prices cache-write tokens at the cache-write rate.\n")
+    out.append(_price_line())
+    out.append("## Summary\n")
+    out.append("| Scenario | Rows | One-shot, no tools | " + _oneshot_label(results) + " |")
+    out.append("|---|---|---|---|")
+    for r in results:
+        b = base_by.get(r["scenario"])
+        rows = " + ".join(f"{i['rows']:,}" for i in r["inputs"])
+        out.append(f"| **{r['title']}** | {rows} | {_headline(b)[1] if b else '–'} | {_headline(r)[1]} |")
+    out.append("")
+    out.append("| Scenario | No tools: cost · latency | " + _oneshot_label(results) + ": cost · latency · tool calls | Tokens, no tools | Tokens with tools |")
+    out.append("|---|---|---|---|---|")
+    tot_b = tot_r = 0.0
+    for r in results:
+        b = base_by.get(r["scenario"])
+        tot_r += (r["oneshot"].get("cost") or {}).get("usd") or 0.0
+        tot_b += ((b or {}).get("oneshot", {}).get("cost") or {}).get("usd") or 0.0
+        out.append(f"| {r['title']} | {_oneshot_cost_cell(b) if b else '–'} | {_oneshot_cost_cell(r)} | {_tokens(b)[1] if b else '–'} | {_tokens(r)[1]} |")
+    out.append(f"| **Total** | **{_usd(tot_b)}** | **{_usd(tot_r)}** ({round(tot_r / tot_b, 2) if tot_b else '–'}× the no-tools cost) | | |")
+    out.append("")
+    for r in results:
+        b = base_by.get(r["scenario"])
+        o = r["oneshot"]
+        out.append(f"## {r['title']}\n")
+        out.append(f"**Prompt:** “{r['prompt']}”\n")
+        out.append("**Inputs:** " + "; ".join(f"`{i['name']}` {i['rows']:,} rows × {len(i['columns'])} columns (~{i['approx_tokens']:,} tokens)" for i in r["inputs"]) + "\n")
+        for n in r.get("notes", []):
+            out.append(f"> {n}\n")
+        out.append("| | One-shot, no tools | " + _oneshot_label(results) + " |")
+        out.append("|---|---|---|")
+        out.append(f"| Tokens | {_tokens(b)[1] if b else '–'} | {_tokens(r)[1]} |")
+        u = o.get("usage") or {}
+        out.append(f"| Cached / cache-write input | {(((b or {}).get('oneshot', {}).get('usage') or {}).get('cached_input_tokens') or 0):,} / {(((b or {}).get('oneshot', {}).get('usage') or {}).get('cache_write_tokens') or 0):,} | {u.get('cached_input_tokens') or 0:,} / {u.get('cache_write_tokens') or 0:,} |")
+        out.append(f"| Cost | {_oneshot_cost_cell(b) if b else '–'} | {_oneshot_cost_cell(r)} |")
+        out.append(f"| Status | `{(b or {}).get('oneshot', {}).get('status')}` | `{o.get('status')}`{'; ' + o['error'] if o.get('error') else ''} |")
+        out.append("")
+        trace = o.get("tool_trace") or []
+        if trace:
+            out.append(f"<details><summary>Code the model ran ({len(trace)} call{'s' if len(trace) != 1 else ''})</summary>\n")
+            for i, t in enumerate(trace, 1):
+                code = (t.get("code") or "").rstrip()
+                more = f"\n# … ({t.get('code_chars', 0):,} characters in total)" if (t.get("code_chars") or 0) > len(t.get("code") or "") else ""
+                out.append(f"**Call {i}** (`{t.get('status')}`)\n\n```python\n{code}{more}\n```\n")
+                logs = [x for x in (t.get("outputs") or []) if x]
+                if logs:
+                    out.append("Output:\n\n```\n" + "\n".join(logs) + "\n```\n")
+            out.append("</details>\n")
+        out.append("**Comparison** (one-shot side; the operators arm was not run in this run)\n")
+        comp = dict(r.get("comparison") or {})
+        examples = comp.pop("examples", None) or {}
+        comp.pop("pipeline", None)
+        comp.pop("agreement", None)
+        out.append(_json_block(comp))
+        ex = {k: v for k, v in examples.items() if "pipeline" not in k and "disagree" not in k}
+        if ex:
+            out.append("\n<details><summary>Examples</summary>\n")
+            out.append(_json_block(ex, 5000))
+            out.append("\n</details>\n")
+        out.append("")
+    return "\n".join(out)
+
+
+def render_index(runs: dict[str, list[dict[str, Any]]], oneshot_runs: dict[str, list[dict[str, Any]]] | None = None) -> str:
     """Top-level RESULTS.md: the one-shot baseline against the operators under each planner."""
+    oneshot_runs = oneshot_runs or {}
     out: list[str] = []
     out.append("# Benchmark: Jev spreadsheet operators vs. one-shot gpt-6-astra\n")
     out.append("Six walkthrough scenarios, each run two ways with the **same prompt and the same CSV**: the operators (planner writes a typed plan → `jev-1.13.0` "
                "answers per row → DuckDB does the exact work) and a single `gpt-6-astra` (reasoning `high`) request holding the whole CSV. "
-               "The operators were run once per planner model; the one-shot answers are shared across runs.\n")
+               "The operators were run once per planner model; the one-shot answers are shared across runs."
+               + (" A further one-shot variant gives the same model the hosted code interpreter as well (`oneshot-tools`)." if "oneshot-tools" in oneshot_runs else "") + "\n")
     out.append(_price_line())
     names = [r for r in RUN_ORDER if r in runs] + [r for r in runs if r not in RUN_ORDER]
+    onames = sorted(oneshot_runs)
     descs = {r: _planner_desc(runs[r]) for r in names}
     out.append("| Run | Planner | Provider | Jev routes | Decision cuts | Details |")
     out.append("|---|---|---|---|---|---|")
+    for r in onames:
+        v = oneshot_runs[r][0].get("oneshot_variant")
+        what = "one-shot only: `gpt-6-astra` (reasoning `high`) + hosted code interpreter, CSVs mounted" if v == "tools" else f"one-shot only: `gpt-6-astra` (`{v}`)"
+        out.append(f"| `{r}` | – ({what}) | openai | – | – | [results/{r}/RESULTS.md](results/{r}/RESULTS.md) |")
     for r in names:
         m, prov, eff = descs[r]
         routes: dict[str, int] = {}
@@ -303,29 +406,40 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
         out.append(f"| `{r}` | `{m}` (reasoning `{eff}`) | {prov} | {route_s} | {cuts} | [results/{r}/RESULTS.md](results/{r}/RESULTS.md) |")
     out.append("")
     by_run = {r: {x["scenario"]: x for x in runs[r]} for r in names}
+    by_orun = {r: {x["scenario"]: x for x in oneshot_runs[r]} for r in onames}
     base = runs[names[0]]
     out.append("## Quality\n")
-    out.append("| Scenario | One-shot (gpt-6-astra) | " + " | ".join(f"Operators `{r}`" for r in names) + " |")
-    out.append("|---|---|" + "---|" * len(names))
+    out.append("| Scenario | One-shot (gpt-6-astra) | " + "".join(f"{_oneshot_label(oneshot_runs[r])} `{r}` | " for r in onames)
+               + " | ".join(f"Operators `{r}`" for r in names) + " |")
+    out.append("|---|---|" + "---|" * (len(onames) + len(names)))
     for r0 in base:
         k = r0["scenario"]
         _, ho, _ = _headline(r0)
-        cells = []
+        cells = [(_headline(by_orun[r][k])[1] if k in by_orun[r] else "–") for r in onames]
         for r in names:
             x = by_run[r].get(k)
             cells.append(_headline(x)[0] if x else "–")
         out.append(f"| **{r0['title']}** | {ho} | " + " | ".join(cells) + " |")
     out.append("")
     out.append("## Cost and latency\n")
-    out.append("| Scenario | One-shot cost / latency | " + " | ".join(f"Operators cost / latency `{r}`" for r in names) + " |")
-    out.append("|---|---|" + "---|" * len(names))
+    out.append("| Scenario | One-shot cost / latency | " + "".join(f"{_oneshot_label(oneshot_runs[r])} `{r}` | " for r in onames)
+               + " | ".join(f"Operators cost / latency `{r}`" for r in names) + " |")
+    out.append("|---|---|" + "---|" * (len(onames) + len(names)))
     totals = {r: 0.0 for r in names}
+    ototals = {r: 0.0 for r in onames}
     tot_o = 0.0
     for r0 in base:
         k = r0["scenario"]
         oc = (r0["oneshot"].get("cost") or {}).get("usd")
         tot_o += oc or 0.0
         cells = []
+        for r in onames:
+            x = by_orun[r].get(k)
+            if not x:
+                cells.append("–")
+                continue
+            ototals[r] += (x["oneshot"].get("cost") or {}).get("usd") or 0.0
+            cells.append(_oneshot_cost_cell(x))
         for r in names:
             x = by_run[r].get(k)
             if not x:
@@ -339,7 +453,9 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
             else:
                 cells.append(f"{_usd(c.get('planner_usd'))} planner + {_usd(c.get('jev_usd_from_measured_tokens'))} Jev = **{_usd(c.get('total_usd'))}** · {t.get('planner', 0):.0f}s + {t.get('job', 0):.0f}s")
         out.append(f"| {r0['title']} | **{_usd(oc)}** · {_latency(r0)[1]} | " + " | ".join(cells) + " |")
-    out.append("| **Total** | **" + _usd(tot_o) + "** | " + " | ".join(f"**{_usd(totals[r])}** ({round(tot_o / totals[r], 1) if totals[r] else '–'}× cheaper than one-shot)" for r in names) + " |")
+    out.append("| **Total** | **" + _usd(tot_o) + "** | "
+               + "".join(f"**{_usd(ototals[r])}** ({round(ototals[r] / tot_o, 2) if tot_o else '–'}× the no-tools one-shot) | " for r in onames)
+               + " | ".join(f"**{_usd(totals[r])}** ({round(tot_o / totals[r], 1) if totals[r] else '–'}× cheaper than one-shot)" for r in names) + " |")
     out.append("")
     out.append("## Agreement between the two arms\n")
     out.append("| Scenario | " + " | ".join(f"`{r}`" for r in names) + " |")
@@ -348,23 +464,32 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
         k = r0["scenario"]
         out.append(f"| {r0['title']} | " + " | ".join((_headline(by_run[r][k])[2] if k in by_run[r] else "–") for r in names) + " |")
     out.append("")
-    out.append("Per-run reports (every plan, every metric, examples of disagreements): " + ", ".join(f"[{r}](results/{r}/RESULTS.md)" for r in names) + ".\n")
+    out.append("Per-run reports (every plan, every metric, examples of disagreements): " + ", ".join(f"[{r}](results/{r}/RESULTS.md)" for r in names + onames) + ".\n")
     return "\n".join(out)
 
 
 def main() -> int:
     runs: dict[str, list[dict[str, Any]]] = {}
+    oneshot_runs: dict[str, list[dict[str, Any]]] = {}
     for d in sorted(p for p in RESULTS_DIR.iterdir() if p.is_dir()):
         results = _load_run(d)
-        if results:
+        if not results:
+            continue
+        if _is_oneshot_only(results):
+            oneshot_runs[d.name] = results
+        else:
             runs[d.name] = results
             (d / "RESULTS.md").write_text(render(results), encoding="utf-8")
             print(f"wrote {d / 'RESULTS.md'} ({len(results)} scenarios)")
     if not runs:
-        print("no results found", file=sys.stderr)
+        print("no operator results found", file=sys.stderr)
         return 1
-    (HERE / "RESULTS.md").write_text(render_index(runs), encoding="utf-8")
-    print(f"wrote {HERE / 'RESULTS.md'} ({len(runs)} runs)")
+    baseline = runs[next(r for r in RUN_ORDER + sorted(runs) if r in runs)]
+    for name, results in oneshot_runs.items():
+        (RESULTS_DIR / name / "RESULTS.md").write_text(render_oneshot_run(results, baseline), encoding="utf-8")
+        print(f"wrote {RESULTS_DIR / name / 'RESULTS.md'} ({len(results)} scenarios, one-shot only)")
+    (HERE / "RESULTS.md").write_text(render_index(runs, oneshot_runs), encoding="utf-8")
+    print(f"wrote {HERE / 'RESULTS.md'} ({len(runs)} operator runs, {len(oneshot_runs)} one-shot-only runs)")
     return 0
 
 
