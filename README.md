@@ -62,8 +62,8 @@ sends it as `Authorization: Bearer demo-token`, and MCP clients use the same hea
 ### Demo datasets
 
 `scripts/prepare_samples.py` turns the raw public downloads in `data/raw/` (Bitext, CFPB, Inside Airbnb NYC,
-BANKING77, WDC product matching, Online Retail II) into bounded demo CSVs in `data/samples/`. The landing page
-lists them under "Sample datasets"; each card carries an example operation. The eight bounded files the landing
+BANKING77, WDC product matching, Online Retail II, Berkeley alumni) into bounded demo CSVs in `data/samples/`. The landing page
+lists them under "Sample datasets"; each card carries an example operation. The nine bounded files the landing
 page uses are checked in, so a fresh clone (and the Docker image) has them without running the script.
 `SEMSHEET_SAMPLES_DIR` points the API at a different samples directory (default `data/samples`).
 

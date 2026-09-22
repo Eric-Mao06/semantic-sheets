@@ -1,7 +1,8 @@
 """Prepare demo/test sample CSVs from the raw downloads in data/raw.
 
 Usage: python scripts/prepare_samples.py [--only key,key]
-Outputs go to data/samples/. Large files are bounded on purpose: inference demos use 1,000-10,000 rows."""
+Outputs go to data/samples/. Large files are bounded on purpose: inference demos use 1,000-10,000 rows,
+except the Berkeley alumni landing sample (100,000 rows, the import cap)."""
 from __future__ import annotations
 
 import argparse
@@ -122,6 +123,92 @@ def online_retail() -> None:
     print(f"online retail: {n} distinct products, {m} product x country rows")
 
 
+def berkeley_alumni() -> None:
+    """Bounded alumni sample from the compact LinkedIn profile dump.
+
+    Expects data/raw/berkeley_linkedin_profiles_compact.csv or data/raw/berkeley_alumni.zip.
+    Drops identifiers that are not useful for semantic demos (ids, emails, photo and LinkedIn URLs)
+    and clips pipe-separated list fields so the checked-in 100,000-row file stays under the 100 MB import cap.
+    """
+    src = RAW / "berkeley_linkedin_profiles_compact.csv"
+    zpath = RAW / "berkeley_alumni.zip"
+    keep = [
+        "name",
+        "location",
+        "company",
+        "role",
+        "headline",
+        "education_schools",
+        "education_degrees",
+        "education_fields_of_study",
+        "experience_companies",
+        "experience_titles",
+        "skills",
+    ]
+    limits = {
+        "education_schools": 4,
+        "education_degrees": 4,
+        "education_fields_of_study": 4,
+        "experience_companies": 6,
+        "experience_titles": 6,
+        "skills": 12,
+    }
+
+    def clip_list(value: str, n: int) -> str:
+        parts = [p.strip() for p in (value or "").split("|") if p.strip()]
+        return " | ".join(parts[:n])
+
+    def usable(row: dict) -> bool:
+        if not (row.get("name") or "").strip():
+            return False
+        return bool(
+            (row.get("company") or "").strip()
+            or (row.get("role") or "").strip()
+            or (row.get("headline") or "").strip()
+        )
+
+    fh = None
+    zf = None
+    if src.exists():
+        fh = src.open(encoding="utf-8-sig", newline="")
+    elif zpath.exists():
+        zf = zipfile.ZipFile(zpath)
+        fh = io.TextIOWrapper(zf.open(zf.namelist()[0]), encoding="utf-8-sig", newline="")
+    else:
+        raise FileNotFoundError("place berkeley_linkedin_profiles_compact.csv or berkeley_alumni.zip in data/raw")
+
+    random.seed(7)
+    sample: list[dict] = []
+    seen = 0
+    try:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            if not usable(row):
+                continue
+            seen += 1
+            if len(sample) < 100_000:
+                sample.append(row)
+            else:
+                j = random.randrange(seen)
+                if j < 100_000:
+                    sample[j] = row
+    finally:
+        fh.close()
+        if zf is not None:
+            zf.close()
+
+    sample.sort(key=lambda r: ((r.get("name") or ""), (r.get("company") or "")))
+    with open(OUT / "berkeley_alumni_100k.csv", "w", newline="", encoding="utf-8") as out:
+        w = csv.DictWriter(out, fieldnames=keep, extrasaction="ignore")
+        w.writeheader()
+        for row in sample:
+            rec = {k: (row.get(k) or "").strip() for k in keep}
+            for k, n in limits.items():
+                rec[k] = clip_list(rec[k], n)
+            w.writerow(rec)
+    print(f"berkeley alumni: {len(sample)}-row sample from {seen} usable profiles")
+
+
 def wdc() -> None:
     """Left offers vs right catalog from the WDC gold standard pairs. The catalog contains the true match of every
     offer plus hard non-matches, so candidate recall and pair precision can both be measured."""
@@ -157,7 +244,7 @@ def wdc() -> None:
     print(f"wdc: {len(left_rows)} offers, {len(right_rows)} catalog entries")
 
 
-STEPS = {"bitext": bitext, "banking77": banking77, "cfpb": cfpb, "airbnb": airbnb, "online_retail": online_retail, "wdc": wdc}
+STEPS = {"bitext": bitext, "banking77": banking77, "cfpb": cfpb, "airbnb": airbnb, "online_retail": online_retail, "berkeley_alumni": berkeley_alumni, "wdc": wdc}
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

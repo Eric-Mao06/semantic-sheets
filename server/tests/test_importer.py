@@ -66,3 +66,11 @@ def test_preview_is_bounded(tmp_path: Path):
     p.write_text("a,b\n" + "\n".join(f"{i},{i * 2}" for i in range(500)) + "\n", encoding="utf-8")
     prev = preview_rows(p, limit=20)
     assert len(prev["rows"]) == 20 and prev["columns"] == ["a", "b"]
+
+
+def test_berkeley_alumni_demo_imports(tmp_path: Path):
+    src = Path(__file__).resolve().parents[2] / "data" / "samples" / "berkeley_alumni_100k.csv"
+    schema, report = import_file(src, tmp_path / "alumni.parquet")
+    names = {c["name"] for c in schema}
+    assert {"name", "headline", "company", "role", "skills", "education_fields_of_study"} <= names
+    assert report.row_count == 100_000 and report.rejected_rows == 0

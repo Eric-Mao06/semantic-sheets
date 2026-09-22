@@ -55,6 +55,14 @@ SAMPLES: list[dict] = [
         "options": {},
     },
     {
+        "key": "berkeley_alumni",
+        "title": "Berkeley alumni",
+        "file": "berkeley_alumni_100k.csv",
+        "description": "100,000 UC Berkeley alumni profiles with current role, company, location, education and skills.",
+        "suggested": "Find alumni now working in AI or machine learning who did not study computer science, then group by current company.",
+        "options": {},
+    },
+    {
         "key": "wdc_offers_left",
         "title": "Product offers (left)",
         "file": "wdc_offers_left.csv",
