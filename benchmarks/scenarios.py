@@ -123,7 +123,9 @@ def _selected_rows(pr: Any, table: str) -> tuple[list[int], str]:
 
 
 def _review_rows(pr: Any, table: str) -> dict[str, Any]:
-    """Rows the pipeline routed to review (uncertain / missing / failed) instead of answering, per boolean question."""
+    """Rows the pipeline lists in the review view, per boolean question: unanswered ones (uncertain / missing /
+    failed, which never reach the output) and, with calibrated cuts, answered rows flagged near the cut
+    (`flagged_near_cut`; these *are* in the output)."""
     out: dict[str, Any] = {}
     for s in _steps(pr, "semantic_annotate"):
         df = _frame(pr, s["id"])
@@ -137,6 +139,11 @@ def _review_rows(pr: Any, table: str) -> dict[str, Any]:
                 for i, st in zip(ids, df[col]):
                     if st not in (None, "ok") and st == st:
                         by_status.setdefault(str(st), []).append(i)
+                near_col = f"{q['name']}.near"
+                if near_col in df.columns:
+                    flagged = [i for i, nr in zip(ids, df[near_col]) if nr is True or nr == 1]
+                    if flagged:
+                        by_status["flagged_near_cut"] = flagged
                 out[q["name"]] = {k: len(v) for k, v in by_status.items()}
                 out[f"{q['name']}__rows"] = sorted(set(sum(by_status.values(), [])))
     return out
@@ -634,9 +641,16 @@ def compare_wdc(prep: Prepared, pr: Any, os_: Any) -> dict[str, Any]:
             status_counts = dict(Counter(str(s) for s in df.get(f"{name}.status", pd.Series(dtype=str))))
             left_ids = _row_ids(pr, df, prep.tables[0].name)
             gold_in_cands = gold_accepted = gold_uncertain = gold_rejected = 0
-            for rid, status, rr, cands in zip(left_ids, df.get(f"{name}.status", []), df.get(f"{name}.right_row_id", []), df.get(f"{name}.candidates", [])):
+            cal = ((getattr(pr, "calibration", None) or {}).get(ms[0]["id"]) or {}).get(name) or {}
+            accept_cut = float(cal["cut"]) if cal.get("mode") == "auto" else float(ms[0].get("accept_min", 0.8))
+            reject_cut = accept_cut if cal.get("mode") == "auto" else float(ms[0].get("reject_max", 0.3))
+            near = list(df[f"{name}.near"]) if f"{name}.near" in df.columns else [False] * len(df)
+            flagged_pairs = set()
+            for rid, status, rr, cands, nr in zip(left_ids, df.get(f"{name}.status", []), df.get(f"{name}.right_row_id", []), df.get(f"{name}.candidates", []), near):
                 if str(status) == "matched" and pd.notna(rr) and int(rr) in right_map:
                     pipe_pairs.add((rowid_to_offer[rid], right_map[int(rr)]))
+                    if nr is True or nr == 1:
+                        flagged_pairs.add((rowid_to_offer[rid], right_map[int(rr)]))
                 try:
                     clist = json.loads(cands) if isinstance(cands, str) else []
                 except ValueError:
@@ -646,13 +660,16 @@ def compare_wdc(prep: Prepared, pr: Any, os_: Any) -> dict[str, Any]:
                 if hit is not None:
                     gold_in_cands += 1
                     p = float(hit.get("p_same") or 0.0)
-                    if p >= float(ms[0].get("accept_min", 0.8)):
+                    if p >= accept_cut:
                         gold_accepted += 1
-                    elif p > float(ms[0].get("reject_max", 0.3)):
+                    elif p > reject_cut:
                         gold_uncertain += 1
                     else:
                         gold_rejected += 1
             diagnostics = {"candidates_per_row": ms[0].get("candidates_per_row"), "accept_min": ms[0].get("accept_min"), "reject_max": ms[0].get("reject_max"),
+                           "calibration": cal or None, "accept_cut_used": accept_cut,
+                           "flagged_near_cut_pairs": len(flagged_pairs), "flagged_pairs_correct": len(flagged_pairs & gold_pairs),
+                           "flagged_near_cut_rows": int(sum(1 for nr in near if nr is True or nr == 1)),
                            "gold_entry_among_candidates": gold_in_cands, "candidate_recall": round(gold_in_cands / len(gold), 4) if gold else None,
                            "gold_candidate_accepted_by_jev": gold_accepted, "gold_candidate_left_uncertain": gold_uncertain, "gold_candidate_rejected_by_jev": gold_rejected,
                            "note": "recall lost before Jev = offers whose true entry was not among the lexical candidates; recall lost at Jev = true entry present but scored below accept_min"}

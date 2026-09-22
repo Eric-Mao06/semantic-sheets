@@ -12,7 +12,7 @@ sys.path.insert(0, str(HERE))
 from common import ASTRA_PRICES, JEV_PRICE_PER_MTOK_INPUT, LONG_CONTEXT_INPUT_TOKENS, PLANNER_PRICES, RESULTS_DIR  # noqa: E402
 
 ORDER = ["support_requests", "banking_queries", "cfpb_complaints", "airbnb_reviews", "retail_gift_categories", "wdc_product_matching"]
-RUN_ORDER = ["planner-gpt-6-astra", "planner-glm-5.3-flash-run1", "planner-glm-5.3-flash", "planner-deepseek-v4.1-flash"]
+RUN_ORDER = ["planner-gpt-6-astra", "planner-glm-5.3-flash-run1", "planner-glm-5.3-flash", "planner-deepseek-v4.1-flash", "planner-deepseek-v4.1-flash-calibrated"]
 
 
 def _f(x: Any, nd: int = 2, pct: bool = False) -> str:
@@ -38,8 +38,10 @@ def _headline(r: dict[str, Any]) -> tuple[str, str, str]:
     if "error" in c:
         return c["error"], "", ""
     if k == "support_requests":
-        rv = p.get("gold_rows_in_review_view") or 0
-        return (f"{p.get('selected')} rows; P {_f(p.get('precision'), pct=True)} / R {_f(p.get('recall'), pct=True)} / F1 {_f(p.get('f1'), pct=True)}" + (f"; {rv} more gold rows in review view" if rv else ""),
+        rv = p.get("missed_gold_in_review_view") or 0
+        fl = _flagged(p)
+        return (f"{p.get('selected')} rows; P {_f(p.get('precision'), pct=True)} / R {_f(p.get('recall'), pct=True)} / F1 {_f(p.get('f1'), pct=True)}"
+                + (f"; {rv} missed gold rows sit in the review view" if rv else "") + (f"; {fl} answered rows flagged near the cut" if fl else ""),
                 f"{o.get('selected')} rows; P {_f(o.get('precision'), pct=True)} / R {_f(o.get('recall'), pct=True)} / F1 {_f(o.get('f1'), pct=True)}",
                 f"Jaccard {_f(a.get('jaccard'))} ({a.get('both')} shared)")
     if k == "banking_queries":
@@ -51,7 +53,9 @@ def _headline(r: dict[str, Any]) -> tuple[str, str, str]:
         return (cls(p), cls(o), f"κ {_f(a.get('kappa'))}, agreement {_f(a.get('agreement'), pct=True)}; wrong_account {(a.get('wrong_account') or {}).get('both')} shared")
     if k == "cfpb_complaints":
         rv = sum((p.get("review_view") or {}).get(q, {}).get("uncertain", 0) for q in (p.get("review_view") or {}))
-        return (f"{p.get('selected')} rows ranked" + (f"; {_f(p.get('keyword_share'), pct=True)} carry a topical keyword" if p.get("selected") else "") + f"; {rv} rows in review view ({p.get('oneshot_rows_in_review_view')} of the one-shot's picks among them)",
+        fl = _flagged(p)
+        return (f"{p.get('selected')} rows ranked" + (f"; {_f(p.get('keyword_share'), pct=True)} carry a topical keyword" if p.get("selected") else "")
+                + f"; {rv} rows withheld as uncertain" + (f", {fl} answered rows flagged near the cut" if fl else "") + f" ({p.get('oneshot_rows_in_review_view')} of the one-shot's picks in the review view)",
                 f"{o.get('selected')} rows ranked; {_f(o.get('keyword_share'), pct=True)} carry a topical keyword",
                 f"Jaccard {_f(a.get('jaccard'))}; Spearman ρ {_f((a.get('rank_spearman_on_common') or {}).get('rho'))} on {(a.get('rank_spearman_on_common') or {}).get('n')} shared; top-20 overlap {(a.get('top_20_overlap') or {}).get('overlap')}")
     if k == "airbnb_reviews":
@@ -128,6 +132,24 @@ def _json_block(obj: Any, limit: int = 6000) -> str:
     if len(s) > limit:
         s = s[:limit] + "\n… (truncated; full data in results/*.json)"
     return f"```json\n{s}\n```"
+
+
+def _flagged(p: dict[str, Any]) -> int:
+    return sum((p.get("review_view") or {}).get(q, {}).get("flagged_near_cut", 0) for q in (p.get("review_view") or {}))
+
+
+def _calibration_rows(r: dict[str, Any]) -> list[str]:
+    """One line per calibrated cut: what the planner wrote, what the engine used, and how many rows sit near it."""
+    cal = r["pipeline"].get("calibration") or {}
+    lines = []
+    for step_id, qs in cal.items():
+        for qname, c in qs.items():
+            if c.get("mode") == "auto":
+                how = f"Otsu {c.get('raw_cut')}" + (" → clamped" if c.get("clamped") else "")
+                lines.append(f"| `{step_id}.{qname}` | {c.get('planner_true_min')} / {c.get('planner_false_max')} | **{c.get('cut')}** ({how}) | {c.get('n_scored'):,} | ±{c.get('flag_margin')} |")
+            else:
+                lines.append(f"| `{step_id}.{qname}` | {c.get('planner_true_min')} / {c.get('planner_false_max')} | {c.get('cut')} ({c.get('mode')}: planner thresholds kept) | {c.get('n_scored'):,} | – |")
+    return lines
 
 
 def _planner_desc(results: list[dict[str, Any]]) -> tuple[str, str, str]:
@@ -209,8 +231,17 @@ def render(results: list[dict[str, Any]]) -> str:
         out.append("")
         plan = r["pipeline"].get("plan") or {}
         if plan:
-            out.append(f"**Plan written by the planner** ({(r['pipeline'].get('planner') or {}).get('attempts')} attempt(s)): *{plan.get('title', '')}* — {plan.get('description', '')}\n")
+            reused = (r["pipeline"].get("planner") or {}).get("reused_from_run")
+            who = f"**Plan reused from run `{reused}`**" if reused else f"**Plan written by the planner** ({(r['pipeline'].get('planner') or {}).get('attempts')} attempt(s))"
+            out.append(f"{who}: *{plan.get('title', '')}* — {plan.get('description', '')}\n")
             out.extend(_plan_summary(plan))
+            out.append("")
+        cal_rows = _calibration_rows(r)
+        if cal_rows:
+            out.append("**Decision cuts** (planner's true_min / false_max vs. the cut the engine used after seeing the scores)\n")
+            out.append("| Question | Planner | Used | Scored rows | Flag margin |")
+            out.append("|---|---|---|---|---|")
+            out.extend(cal_rows)
             out.append("")
         out.append("**Comparison**\n")
         comp = dict(r.get("comparison") or {})
@@ -243,8 +274,8 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
     out.append(_price_line())
     names = [r for r in RUN_ORDER if r in runs] + [r for r in runs if r not in RUN_ORDER]
     descs = {r: _planner_desc(runs[r]) for r in names}
-    out.append("| Run | Planner | Provider | Jev routes | Details |")
-    out.append("|---|---|---|---|---|")
+    out.append("| Run | Planner | Provider | Jev routes | Decision cuts | Details |")
+    out.append("|---|---|---|---|---|---|")
     for r in names:
         m, prov, eff = descs[r]
         routes: dict[str, int] = {}
@@ -252,7 +283,10 @@ def render_index(runs: dict[str, list[dict[str, Any]]]) -> str:
             for k, n in ((x["pipeline"].get("cost") or {}).get("jev_route_requests") or {}).items():
                 routes[k] = routes.get(k, 0) + int(n)
         route_s = ", ".join(f"{k} ({n} requests)" for k, n in sorted(routes.items())) if routes else "direct"
-        out.append(f"| `{r}` | `{m}` (reasoning `{eff}`) | {prov} | {route_s} | [results/{r}/RESULTS.md](results/{r}/RESULTS.md) |")
+        auto = any(c.get("mode") == "auto" for x in runs[r] for qs in (x["pipeline"].get("calibration") or {}).values() for c in qs.values())
+        reused = (runs[r][0].get("planner_config") or {}).get("plans_reused_from")
+        cuts = ("calibrated on the scores (Otsu)" if auto else "planner's fixed thresholds") + (f"; plans reused from `{reused}`" if reused else "")
+        out.append(f"| `{r}` | `{m}` (reasoning `{eff}`) | {prov} | {route_s} | {cuts} | [results/{r}/RESULTS.md](results/{r}/RESULTS.md) |")
     out.append("")
     by_run = {r: {x["scenario"]: x for x in runs[r]} for r in names}
     base = runs[names[0]]

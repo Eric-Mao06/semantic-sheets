@@ -5,6 +5,7 @@ own store instead of the demo workspace."""
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import time
 from dataclasses import dataclass, field
@@ -36,11 +37,12 @@ class PipelineResult:
     datasets: dict[str, dict[str, Any]] = field(default_factory=dict)
     timings: dict[str, float] = field(default_factory=dict)
     cost: dict[str, Any] = field(default_factory=dict)
+    calibration: dict[str, Any] = field(default_factory=dict)  # step id -> question -> chosen cut (engine manifest)
     error: str | None = None
 
     def summary(self) -> dict[str, Any]:
         return {
-            "plan": self.plan, "planner": self.planner, "estimate": self.estimate,
+            "plan": self.plan, "planner": self.planner, "estimate": self.estimate, "calibration": self.calibration,
             "job": {k: self.job.get(k) for k in ("job_id", "state", "terminal_reason", "usage", "progress", "error_summary", "errors")},
             "step_rows": {k: int(len(v)) for k, v in self.steps.items()},
             "datasets": {k: {kk: vv for kk, vv in v.items() if kk in ("dataset_id", "version_id", "row_count")} for k, v in self.datasets.items()},
@@ -48,7 +50,10 @@ class PipelineResult:
         }
 
 
-def run_pipeline(scenario: Scenario, prep: Prepared, spend_target_usd: float = 5.0, deadline_seconds: int = 1800) -> PipelineResult:
+def run_pipeline(scenario: Scenario, prep: Prepared, spend_target_usd: float = 5.0, deadline_seconds: int = 1800,
+                 plan_from: dict[str, Any] | None = None) -> PipelineResult:
+    """plan_from: a stored pipeline meta.json from an earlier run. Its plan is re-submitted verbatim (dataset ids
+    remapped to the fresh imports) instead of asking the planner, so two runs differ only in the engine."""
     res = PipelineResult()
     db = get_db()
     svc = Services(db)
@@ -66,13 +71,22 @@ def run_pipeline(scenario: Scenario, prep: Prepared, spend_target_usd: float = 5
 
         t1 = time.time()
         primary = res.datasets[prep.primary.name]
-        compiled = svc.plans_compile(ws, primary["dataset_id"], primary["version_id"], scenario.prompt)
-        res.timings["planner"] = round(time.time() - t1, 2)
-        res.plan = compiled["plan"]
-        res.estimate = compiled["estimate"]
-        usage = compiled["planner"].get("usage") or {}
-        res.planner = {**compiled["planner"], "attempts": compiled.get("attempts"), "title": compiled.get("title"), "description": compiled.get("description"),
-                       "cost": planner_cost(compiled["planner"]["model"], usage)}
+        if plan_from is not None:
+            plan_obj = _remap_plan(plan_from, res.datasets)
+            compiled = svc.plans_validate(ws, plan_obj)
+            res.plan = compiled["plan"]
+            res.estimate = compiled["estimate"]
+            # the plan was paid for once, in the source run; carry its cost and latency so totals stay comparable
+            res.planner = {**plan_from["planner"], "reused_from_run": plan_from.get("run")}
+            res.timings["planner"] = plan_from.get("timings_seconds", {}).get("planner", 0.0)
+        else:
+            compiled = svc.plans_compile(ws, primary["dataset_id"], primary["version_id"], scenario.prompt)
+            res.timings["planner"] = round(time.time() - t1, 2)
+            res.plan = compiled["plan"]
+            res.estimate = compiled["estimate"]
+            usage = compiled["planner"].get("usage") or {}
+            res.planner = {**compiled["planner"], "attempts": compiled.get("attempts"), "title": compiled.get("title"), "description": compiled.get("description"),
+                           "cost": planner_cost(compiled["planner"]["model"], usage)}
 
         t2 = time.time()
         limits = {"max_source_rows": max(t.row_count for t in prep.tables), "max_provider_requests": 20_000, "spend_target_usd": spend_target_usd, "deadline_seconds": deadline_seconds}
@@ -86,6 +100,7 @@ def run_pipeline(scenario: Scenario, prep: Prepared, spend_target_usd: float = 5
         res.timings["job"] = round(time.time() - t2, 2)
         res.job = svc.jobs_get(ws, job["job_id"])
         rv_id = res.job["result_version_id"]
+        res.calibration = svc.results_describe(ws, rv_id).get("manifest", {}).get("calibration") or {}
 
         for step in res.plan["steps"]:
             try:
@@ -111,6 +126,22 @@ def run_pipeline(scenario: Scenario, prep: Prepared, spend_target_usd: float = 5
         res.error = f"{type(e).__name__}: {e}"[:2000]
     res.timings["total"] = round(time.time() - t0, 2)
     return res
+
+
+def _remap_plan(meta: dict[str, Any], datasets: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Point a stored plan at freshly imported copies of the same tables (matched by table name)."""
+    old_to_name = {v["dataset_id"]: name for name, v in (meta.get("datasets") or {}).items()}
+    plan = json.loads(json.dumps(meta["plan"]))
+
+    def fresh(old_id: str) -> dict[str, str]:
+        ds = datasets[old_to_name[old_id]]
+        return {"dataset_id": ds["dataset_id"], "version_id": ds["version_id"]}
+
+    plan["source"] = fresh(plan["source"]["dataset_id"])
+    for step in plan["steps"]:
+        if step.get("op") == "semantic_match":
+            step["right"] = {"dataset_id": fresh(step["right"]["dataset_id"])["dataset_id"]}
+    return plan
 
 
 def store_dir() -> Path:

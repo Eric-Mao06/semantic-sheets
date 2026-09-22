@@ -11,9 +11,9 @@ Prices used (list, 2026-09-21): gpt-6-astra $10.00 / M input, $1.00 / M cached i
 
 | Scenario | Rows | Operators (Jev) | One-shot (Astra) | Agreement |
 |---|---|---|---|---|
-| **Customer support: cancel because unaffordable** | 3,000 | 3 rows; P 100.0% / R 33.3% / F1 50.0%; 4 more gold rows in review view | 9 rows; P 100.0% / R 100.0% / F1 100.0% | Jaccard 0.33 (3 shared) |
+| **Customer support: cancel because unaffordable** | 3,000 | 3 rows; P 100.0% / R 33.3% / F1 50.0%; 4 missed gold rows sit in the review view | 9 rows; P 100.0% / R 100.0% / F1 100.0% | Jaccard 0.33 (3 shared) |
 | **Banking queries: separate transfer problems** | 3,080 | pending F1 58.0%, failed F1 39.2% (lenient gold); macro-F1 33.3% strict / 48.6% lenient | pending F1 79.7%, failed F1 75.0% (lenient gold); macro-F1 61.5% strict / 77.3% lenient | κ 0.51, agreement 89.7%; wrong_account 5 shared |
-| **Consumer complaints: filter then rank by urgency** | 5,000 | 170 rows ranked; 78.2% carry a topical keyword; 106 rows in review view (0 of the one-shot's picks among them) | 8 rows ranked; 100.0% carry a topical keyword | Jaccard 0.05; Spearman ρ 0.29 on 8 shared; top-20 overlap 8 |
+| **Consumer complaints: filter then rank by urgency** | 5,000 | 170 rows ranked; 78.2% carry a topical keyword; 106 rows withheld as uncertain (0 of the one-shot's picks in the review view) | 8 rows ranked; 100.0% carry a topical keyword | Jaccard 0.05; Spearman ρ 0.29 on 8 shared; top-20 overlap 8 |
 | **Airbnb reviews: unreliable Wi-Fi, grouped by property** | 1,200 | 16 reviews, 16 properties; aggregate exact | 17 reviews, 17 properties; counts consistent 17/17, prices right 16/17 | reviews Jaccard 0.94; properties Jaccard 0.94 |
 | **Retail: gift categories, revenue by category and country** | 300 + 4,758 | 7 categories; revenue cells exact 267/267 | 3 categories; revenue cells exact 53/83 (within 0.5%: 55), max error $46,502.80, 0 cells missing | ARI 0.07, NMI 0.21 over 300 products |
 | **Product matching: offers to catalog** | 400 + 598 | 151 pairs; P 98.0% / R 37.0% / F1 53.7% | 357 pairs; P 97.5% / R 87.0% / F1 91.9% | Jaccard 0.41 (148 shared pairs) |

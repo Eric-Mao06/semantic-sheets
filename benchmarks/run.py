@@ -4,6 +4,8 @@
     python benchmarks/run.py -s support_requests               # one scenario
     python benchmarks/run.py --reuse oneshot                   # re-run the operators and comparison, reuse stored one-shot answers
     python benchmarks/run.py --planner-provider openrouter --planner-model z-ai/glm-5.3-flash --reuse oneshot
+    python benchmarks/run.py --plan-from planner-deepseek-v4.1-flash --run planner-deepseek-v4.1-flash-calibrated --reuse oneshot
+                                                               # re-run the engine on the plans a previous run produced (A/B of engine changes)
 
 Each planner configuration is a separate *run* (default name planner-<model>); results go to
 benchmarks/results/<run>/<scenario>.json and the operators' raw outputs to data/benchmark/raw_outputs/<run>/.
@@ -41,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--planner-reasoning", default=os.environ.get("PLANNER_REASONING", "high"))
     ap.add_argument("--planner-openrouter-providers", default=os.environ.get("PLANNER_OPENROUTER_PROVIDERS", ""),
                     help="OpenRouter only: pin the upstream provider(s), comma-separated, no fallbacks (e.g. Together)")
+    ap.add_argument("--plan-from", default="", help="reuse the plans stored by this earlier run instead of calling the planner (engine-only A/B)")
     ap.add_argument("--run", default="", help="run name (default: planner-<model>)")
     return ap.parse_args()
 
@@ -51,6 +54,9 @@ def run_name_for(model: str) -> str:
 
 def main() -> int:
     args = parse_args()
+    if args.plan_from and not args.run:
+        print("--plan-from needs an explicit --run name", file=sys.stderr)
+        return 2
     run = args.run or run_name_for(args.planner_model)
     # The engine reads its configuration at import time, so set it before importing the pipeline driver.
     os.environ["PLANNER_PROVIDER"] = args.planner_provider
@@ -85,7 +91,7 @@ def main() -> int:
         if not (d / "meta.json").exists():
             return None
         meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
-        pr = PipelineResult(plan=meta["plan"], planner=meta["planner"], estimate=meta["estimate"], job=meta["job"], timings=meta["timings_seconds"], cost=meta["cost"], error=meta["error"])
+        pr = PipelineResult(plan=meta["plan"], planner=meta["planner"], estimate=meta["estimate"], job=meta["job"], timings=meta["timings_seconds"], cost=meta["cost"], calibration=meta.get("calibration") or {}, error=meta["error"])
         for p in d.glob("step__*.parquet"):
             pr.steps[p.stem[len("step__"):]] = pd.read_parquet(p)
         for p in d.glob("dataset__*.parquet"):
@@ -119,11 +125,20 @@ def main() -> int:
             print("TYPESAFE_API_KEY is required for the operators arm", file=sys.stderr)
             return 2
         key_var = "OPENROUTER_API_KEY" if args.planner_provider == "openrouter" else "OPENAI_API_KEY"
-        if not os.environ.get(key_var):
+        if not args.plan_from and not os.environ.get(key_var):
             print(f"{key_var} is required for the {args.planner_provider} planner", file=sys.stderr)
             return 2
     pin = f" pinned to {args.planner_openrouter_providers}" if args.planner_openrouter_providers else ""
-    print(f"run={run} planner={args.planner_provider}/{args.planner_model} ({args.planner_reasoning}){pin} -> {results_dir.relative_to(ROOT)}")
+    src = f" plans reused from {args.plan_from}" if args.plan_from else ""
+    print(f"run={run} planner={args.planner_provider}/{args.planner_model} ({args.planner_reasoning}){pin}{src} -> {results_dir.relative_to(ROOT)}")
+
+    def stored_plan(key: str) -> dict | None:
+        if not args.plan_from:
+            return None
+        p = RAW_DIR / args.plan_from / key / "pipeline" / "meta.json"
+        if not p.exists():
+            raise SystemExit(f"--plan-from {args.plan_from}: no stored pipeline for {key} at {p}")
+        return {**json.loads(p.read_text(encoding="utf-8")), "run": args.plan_from}
 
     prepared: dict[str, Prepared] = {}
     for k in keys:
@@ -155,7 +170,7 @@ def main() -> int:
                 continue
             print(f"[{k}] pipeline: import -> plan -> Jev job")
             t0 = time.time()
-            pr = run_pipeline(SCENARIOS[k], prepared[k])
+            pr = run_pipeline(SCENARIOS[k], prepared[k], plan_from=stored_plan(k))
             pipelines[k] = pr
             save_pipeline(k, pr)
             print(f"[{k}] pipeline done in {time.time() - t0:.0f}s: job={pr.job.get('state')} cost={pr.cost.get('total_usd')} error={pr.error}")
@@ -177,7 +192,8 @@ def main() -> int:
             comparison = {"error": f"comparison failed: {type(e).__name__}: {e}"}
         result = {
             "run": run, "planner_config": {"provider": args.planner_provider, "model": args.planner_model, "reasoning_effort": args.planner_reasoning,
-                                           "openrouter_providers": [p for p in args.planner_openrouter_providers.split(",") if p]},
+                                           "openrouter_providers": [p for p in args.planner_openrouter_providers.split(",") if p],
+                                           "plans_reused_from": args.plan_from or None},
             "scenario": k, "title": sc.title, "prompt": sc.prompt,
             "inputs": [{"name": t.name, "rows": t.row_count, "columns": t.columns, "approx_tokens": t.est_tokens} for t in prepared[k].tables],
             "notes": prepared[k].notes,
