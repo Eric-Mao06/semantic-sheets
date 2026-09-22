@@ -73,6 +73,7 @@ class Usage:
     reserved_usd: float = 0.0
     cache_hits: int = 0
     ambiguous_attempts: int = 0
+    route_requests: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         d = self.__dict__.copy()
@@ -343,6 +344,7 @@ class JobRunner:
                 self._settle(ws_id, job_id, usage, pkt.estimated_tokens, results[i] if isinstance(results[i], jev.JevResult) else None)
                 stats["requests"] += 1
                 usage.ambiguous_attempts = self.client.ambiguous_attempts
+                usage.route_requests = dict(getattr(self.client, "route_requests", None) or {})
 
         pending: list[asyncio.Task] = []
         for i, pkt in enumerate(packets):

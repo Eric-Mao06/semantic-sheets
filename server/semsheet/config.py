@@ -26,6 +26,13 @@ class Settings:
     typesafe_base_url: str = field(default_factory=lambda: os.environ.get("TYPESAFE_BASE_URL", "https://api.typesafe.ai"))
     jev_model: str = field(default_factory=lambda: os.environ.get("JEV_MODEL", "jev-1.13.0"))
     jev_price_per_mtok_usd: float = field(default_factory=lambda: _env_float("JEV_PRICE_PER_MTOK_USD", 0.042))
+    # Jev is also served by OpenRouter (POST /api/alpha/decisions, same request and answer shape, same price). Each
+    # route has its own rate limit, so JEV_ROUTES="direct,openrouter" spreads packets over both and doubles throughput.
+    # Routes whose key is missing are skipped.
+    jev_routes: tuple[str, ...] = field(default_factory=lambda: tuple(r.strip() for r in os.environ.get("JEV_ROUTES", "direct,openrouter").split(",") if r.strip()))
+    jev_openrouter_model: str = field(default_factory=lambda: os.environ.get("JEV_OPENROUTER_MODEL", "typesafe/jev-1.13"))
+    jev_openrouter_url: str = field(default_factory=lambda: os.environ.get("JEV_OPENROUTER_URL", "https://openrouter.ai/api/alpha/decisions"))
+    # Per-route limits (TypeSafe's published limits apply per account; OpenRouter's apply per OpenRouter key).
     jev_requests_per_minute: int = field(default_factory=lambda: _env_int("JEV_RPM", 1200))
     jev_tokens_per_second: int = field(default_factory=lambda: _env_int("JEV_TPS", 250_000))
     jev_max_state_plus_question_tokens: int = 32_000

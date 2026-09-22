@@ -15,7 +15,7 @@ import math
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -248,80 +248,154 @@ class JevResult:
     output_tokens: int
     latency_ms: float
     attempts: int
+    route: str = "direct"
+    reported_cost_usd: float | None = None
+
+
+class JevRoute:
+    """One way to reach Jev (TypeSafe direct or OpenRouter's decisions endpoint) with its own limits and counters."""
+
+    def __init__(self, name: str, url: str, api_key: str, model_for: Callable[[str], str], concurrency: int) -> None:
+        self.name = name
+        self.url = url
+        self.api_key = api_key
+        self.model_for = model_for
+        self.request_bucket = TokenBucket(settings.jev_requests_per_minute / 60.0, max(1.0, settings.jev_requests_per_minute / 60.0 * 2))
+        self.token_bucket = TokenBucket(settings.jev_tokens_per_second, settings.jev_tokens_per_second * 2)
+        self.semaphore = asyncio.Semaphore(concurrency)
+        self.in_flight = 0
+        self.requests_made = 0
+        self.failures = 0
+        self.cooldown_until = 0.0
+
+    def load(self, now: float) -> tuple[int, int, float]:
+        # Cooling-down routes sort last; otherwise prefer the emptiest queue, then the least-used route.
+        return (1 if now < self.cooldown_until else 0, self.in_flight, self.requests_made)
+
+
+def _openrouter_model(model: str) -> str:
+    # Plans name the direct model ("jev-1.13.0"); OpenRouter lists the same build as "typesafe/jev-1.13".
+    if model.startswith("typesafe/"):
+        return model
+    if model == settings.jev_model or model in ("jev-latest", "jev-1.13.0", "jev-1.13"):
+        return settings.jev_openrouter_model
+    return "typesafe/" + model
+
+
+def build_routes(api_key: str | None = None, base_url: str | None = None, concurrency: int | None = None) -> list[JevRoute]:
+    per_route = concurrency or settings.jev_concurrency
+    routes: list[JevRoute] = []
+    for name in settings.jev_routes:
+        if name == "direct":
+            key = api_key or settings.typesafe_api_key
+            if key:
+                routes.append(JevRoute("direct", (base_url or settings.typesafe_base_url).rstrip("/") + "/v1/systemone", key, lambda m: m, per_route))
+        elif name == "openrouter":
+            if settings.openrouter_api_key:
+                routes.append(JevRoute("openrouter", settings.jev_openrouter_url, settings.openrouter_api_key, _openrouter_model, per_route))
+    return routes
 
 
 class JevClient:
-    """Async client with shared limiters. One instance per worker process."""
+    """Async client that spreads packets over every configured route. Each route keeps its own request/token
+    buckets and concurrency, so two routes give twice the throughput; a retryable failure on one route is
+    retried on another. One instance per worker process."""
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None, concurrency: int | None = None) -> None:
-        self.api_key = api_key or settings.typesafe_api_key
-        self.base_url = (base_url or settings.typesafe_base_url).rstrip("/")
-        self.request_bucket = TokenBucket(settings.jev_requests_per_minute / 60.0, max(1.0, settings.jev_requests_per_minute / 60.0 * 2))
-        self.token_bucket = TokenBucket(settings.jev_tokens_per_second, settings.jev_tokens_per_second * 2)
-        self.semaphore = asyncio.Semaphore(concurrency or settings.jev_concurrency)
+        self.routes = build_routes(api_key, base_url, concurrency)
         self._client: httpx.AsyncClient | None = None
         self.requests_made = 0
         self.ambiguous_attempts = 0  # timed out after sending; may have been billed
 
+    @property
+    def route_requests(self) -> dict[str, int]:
+        return {r.name: r.requests_made for r in self.routes}
+
     async def __aenter__(self) -> "JevClient":
-        self._client = httpx.AsyncClient(timeout=settings.jev_timeout_seconds, limits=httpx.Limits(max_connections=64))
+        self._client = httpx.AsyncClient(timeout=settings.jev_timeout_seconds, limits=httpx.Limits(max_connections=64 * max(1, len(self.routes))))
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
         if self._client:
             await self._client.aclose()
 
+    def _pick(self, exclude: JevRoute | None) -> JevRoute:
+        now = time.monotonic()
+        candidates = [r for r in self.routes if r is not exclude] or self.routes
+        return min(candidates, key=lambda r: r.load(now))
+
     async def evaluate(self, packet: Packet, model: str) -> JevResult:
-        if not self.api_key:
-            raise JevError("TYPESAFE_API_KEY is not configured", retryable=False)
+        if not self.routes:
+            raise JevError("no Jev route is configured (set TYPESAFE_API_KEY and/or OPENROUTER_API_KEY)", retryable=False)
         body = packet.build()
-        body["model"] = model
         attempts = 0
         delay = 0.5
         started = time.monotonic()
-        async with self.semaphore:
-            while True:
-                attempts += 1
-                await self.request_bucket.acquire(1)
-                await self.token_bucket.acquire(packet.estimated_tokens or 500)
-                try:
-                    assert self._client is not None
-                    resp = await self._client.post(
-                        f"{self.base_url}/v1/systemone",
-                        json=body,
-                        headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                    )
-                    self.requests_made += 1
-                except (httpx.TimeoutException, httpx.TransportError) as e:
-                    if isinstance(e, httpx.TimeoutException):
-                        self.ambiguous_attempts += 1
-                    if attempts >= settings.jev_max_retries:
-                        raise JevError(f"provider transport error after {attempts} attempts: {e}", retryable=True)
-                    await asyncio.sleep(delay + random.uniform(0, delay))
-                    delay = min(delay * 2, 16)
-                    continue
-                if resp.status_code in (429, 529, 500, 502, 503, 504):
-                    if attempts >= settings.jev_max_retries:
-                        raise JevError(f"provider returned {resp.status_code} after {attempts} attempts", status=resp.status_code, retryable=True)
-                    retry_after = resp.headers.get("retry-after")
-                    wait = float(retry_after) if retry_after and retry_after.replace(".", "", 1).isdigit() else delay
-                    await asyncio.sleep(wait + random.uniform(0, min(delay, 2)))
-                    delay = min(delay * 2, 16)
-                    continue
-                if resp.status_code == 401:
-                    raise JevError("provider rejected the API key (401)", status=401, retryable=False)
-                if resp.status_code >= 400:
-                    raise JevError(f"provider validation error {resp.status_code}: {resp.text[:400]}", status=resp.status_code, retryable=False)
-                data = resp.json()
-                usage = data.get("usage") or {}
-                return JevResult(
-                    answers=data.get("answers") or {},
-                    model=data.get("model") or model,
-                    input_tokens=int(usage.get("input_tokens", 0)),
-                    output_tokens=int(usage.get("output_tokens", 0)),
-                    latency_ms=(time.monotonic() - started) * 1000,
-                    attempts=attempts,
-                )
+        last_failed: JevRoute | None = None
+        while True:
+            attempts += 1
+            route = self._pick(last_failed)
+            route.in_flight += 1
+            try:
+                async with route.semaphore:
+                    await route.request_bucket.acquire(1)
+                    await route.token_bucket.acquire(packet.estimated_tokens or 500)
+                    outcome = await self._attempt(route, {**body, "model": route.model_for(model)})
+            finally:
+                route.in_flight -= 1
+            if isinstance(outcome, JevResult):
+                outcome.attempts = attempts
+                outcome.latency_ms = (time.monotonic() - started) * 1000
+                return outcome
+            # Retryable failure on this route: back off, then try another route if there is one.
+            route.failures += 1
+            route.cooldown_until = time.monotonic() + delay
+            last_failed = route
+            if attempts >= settings.jev_max_retries:
+                raise JevError(f"{outcome} after {attempts} attempts", status=outcome.status, retryable=True)
+            wait = outcome.retry_after if outcome.retry_after is not None else delay
+            if len(self.routes) > 1 and outcome.retry_after is None:
+                wait = min(wait, 0.25)
+            await asyncio.sleep(wait + random.uniform(0, min(delay, 2)))
+            delay = min(delay * 2, 16)
+
+    async def _attempt(self, route: JevRoute, body: dict[str, Any]) -> "JevResult | _Retry":
+        assert self._client is not None
+        try:
+            resp = await self._client.post(route.url, json=body, headers={"Authorization": f"Bearer {route.api_key}", "Content-Type": "application/json"})
+        except (httpx.TimeoutException, httpx.TransportError) as e:
+            if isinstance(e, httpx.TimeoutException):
+                self.ambiguous_attempts += 1
+            return _Retry(f"{route.name}: transport error: {e}", None, None)
+        route.requests_made += 1
+        self.requests_made += 1
+        if resp.status_code in (429, 529, 500, 502, 503, 504):
+            retry_after = resp.headers.get("retry-after")
+            ra = float(retry_after) if retry_after and retry_after.replace(".", "", 1).isdigit() else None
+            return _Retry(f"{route.name}: provider returned {resp.status_code}", resp.status_code, ra)
+        if resp.status_code == 401:
+            raise JevError(f"{route.name}: provider rejected the API key (401)", status=401, retryable=False)
+        if resp.status_code >= 400:
+            raise JevError(f"{route.name}: provider validation error {resp.status_code}: {resp.text[:400]}", status=resp.status_code, retryable=False)
+        data = resp.json()
+        usage = data.get("usage") or {}
+        cost = usage.get("cost")
+        return JevResult(
+            answers=data.get("answers") or {},
+            model=data.get("model") or body["model"],
+            input_tokens=int(usage.get("input_tokens", 0)),
+            output_tokens=int(usage.get("output_tokens", 0)),
+            latency_ms=0.0,
+            attempts=1,
+            route=route.name,
+            reported_cost_usd=float(cost) if cost is not None else None,
+        )
+
+
+class _Retry(JevError):
+    def __init__(self, message: str, status: int | None, retry_after: float | None) -> None:
+        super().__init__(message, status=status, retryable=True)
+        self.retry_after = retry_after
 
 
 def allocate_usage(packet: Packet, input_tokens: int) -> dict[int, int]:

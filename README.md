@@ -27,13 +27,17 @@ PLANNER_MODEL=gpt-6-astra
 PLANNER_REASONING=high
 ```
 
-The planner can also run on any OpenRouter model through its OpenAI-compatible endpoint, e.g. GLM 5.3 Flash:
+With `OPENROUTER_API_KEY` set, two more things become available:
 
 ```
-PLANNER_PROVIDER=openrouter
 OPENROUTER_API_KEY=sk-or-...
+JEV_ROUTES=direct,openrouter         # default: Jev packets are spread over TypeSafe direct and OpenRouter's
+                                     # decisions endpoint (typesafe/jev-1.13), each with its own rate limit
+PLANNER_PROVIDER=openrouter          # run the planner on any OpenRouter model, e.g. GLM 5.3 Flash
 PLANNER_MODEL=z-ai/glm-5.3-flash
 ```
+
+Set `JEV_ROUTES=direct` to pin Jev to the TypeSafe API only.
 
 ## Run
 
