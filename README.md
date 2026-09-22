@@ -33,8 +33,9 @@ With `OPENROUTER_API_KEY` set, two more things become available:
 OPENROUTER_API_KEY=sk-or-...
 JEV_ROUTES=direct,openrouter         # default: Jev packets are spread over TypeSafe direct and OpenRouter's
                                      # decisions endpoint (typesafe/jev-1.13), each with its own rate limit
-PLANNER_PROVIDER=openrouter          # run the planner on any OpenRouter model, e.g. GLM 5.3 Flash
-PLANNER_MODEL=z-ai/glm-5.3-flash
+PLANNER_PROVIDER=openrouter          # run the planner on any OpenRouter model, e.g. DeepSeek V4.1 Flash
+PLANNER_MODEL=deepseek/deepseek-v4.1-flash
+PLANNER_OPENROUTER_PROVIDERS=Together   # optional: pin the upstream provider (no fallbacks); empty = OpenRouter routing
 ```
 
 Set `JEV_ROUTES=direct` to pin Jev to the TypeSafe API only.
@@ -75,8 +76,8 @@ cd web && npx tsc -p tsconfig.app.json --noEmit && npm run build
 
 `benchmarks/` compares the operators (planner + Jev + DuckDB) with handing the same CSV and prompt to `gpt-6-astra`
 (reasoning `high`) in one request, on the six walkthrough scenarios: output quality against gold or agreement
-metrics, token usage, cost and latency. The operators were run with two planners (`gpt-6-astra` and
-`z-ai/glm-5.3-flash` via OpenRouter). See [`benchmarks/README.md`](benchmarks/README.md) for the method and findings,
+metrics, token usage, cost and latency. The operators were run with three planners (`gpt-6-astra`, `z-ai/glm-5.3-flash`
+and `deepseek/deepseek-v4.1-flash` via OpenRouter). See [`benchmarks/README.md`](benchmarks/README.md) for the method and findings,
 [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for the cross-planner summary and `benchmarks/results/<run>/RESULTS.md`
 for every plan, metric and disagreement.
 

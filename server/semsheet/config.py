@@ -49,6 +49,9 @@ class Settings:
     openrouter_api_key: str = field(default_factory=lambda: os.environ.get("OPENROUTER_API_KEY", ""))
     openrouter_base_url: str = field(default_factory=lambda: os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"))
     planner_model: str = field(default_factory=lambda: os.environ.get("PLANNER_MODEL", "gpt-6-astra"))
+    # OpenRouter only: pin the upstream provider(s), e.g. "CoreWeave" or "Together,CoreWeave". Empty = OpenRouter's default routing.
+    planner_openrouter_providers: tuple[str, ...] = field(default_factory=lambda: tuple(p.strip() for p in os.environ.get("PLANNER_OPENROUTER_PROVIDERS", "").split(",") if p.strip()))
+    planner_openrouter_allow_fallbacks: bool = field(default_factory=lambda: os.environ.get("PLANNER_OPENROUTER_ALLOW_FALLBACKS", "0") == "1")
     planner_reasoning_effort: str = field(default_factory=lambda: os.environ.get("PLANNER_REASONING", "high"))
     planner_max_output_tokens: int = field(default_factory=lambda: _env_int("PLANNER_MAX_OUTPUT_TOKENS", 12_000))
 

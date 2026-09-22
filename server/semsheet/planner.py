@@ -148,19 +148,23 @@ def _call_openrouter(user_text: str) -> tuple[str, dict[str, Any]]:
     if not settings.openrouter_api_key:
         raise PlannerError("OPENROUTER_API_KEY is not configured")
     client = OpenAI(api_key=settings.openrouter_api_key, base_url=settings.openrouter_base_url, timeout=600)
+    extra: dict[str, Any] = {"reasoning": {"effort": settings.planner_reasoning_effort}, "usage": {"include": True}}
+    if settings.planner_openrouter_providers:
+        extra["provider"] = {"order": list(settings.planner_openrouter_providers), "allow_fallbacks": settings.planner_openrouter_allow_fallbacks}
     resp = client.chat.completions.create(
         model=settings.planner_model,
         messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_text}],
         response_format={"type": "json_object"},
         max_tokens=settings.planner_max_output_tokens,
-        extra_body={"reasoning": {"effort": settings.planner_reasoning_effort}, "usage": {"include": True}},
+        extra_body=extra,
     )
     choice = resp.choices[0] if resp.choices else None
     text = (choice.message.content if choice and choice.message else None) or ""
     usage = getattr(resp, "usage", None)
     details = getattr(usage, "completion_tokens_details", None)
     return text, {"input_tokens": getattr(usage, "prompt_tokens", None), "output_tokens": getattr(usage, "completion_tokens", None),
-                  "reasoning_tokens": getattr(details, "reasoning_tokens", None), "cost_usd": getattr(usage, "cost", None)}
+                  "reasoning_tokens": getattr(details, "reasoning_tokens", None), "cost_usd": getattr(usage, "cost", None),
+                  "served_by": getattr(resp, "provider", None), "served_model": getattr(resp, "model", None)}
 
 
 def _strip_code_fence(text: str) -> str:
