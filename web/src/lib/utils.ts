@@ -23,6 +23,15 @@ export function formatDuration(seconds: number): string {
   return `about ${h} hour${h === 1 ? "" : "s"}`;
 }
 
+/** Compact duration for tight stat cells: "~15 sec", "~2 min", "~1 hr". */
+export function formatDurationShort(seconds: number): string {
+  if (seconds < 5) return "seconds";
+  if (seconds < 60) return `~${Math.round(seconds / 5) * 5} sec`;
+  const m = Math.round(seconds / 60);
+  if (m < 60) return `~${m} min`;
+  return `~${Math.round(m / 60)} hr`;
+}
+
 export function formatCount(n: number): string {
   return n.toLocaleString("en-US");
 }

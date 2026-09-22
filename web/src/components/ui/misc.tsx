@@ -32,7 +32,7 @@ function Stat({ label, value, hint, className }: { label: string; value: React.R
   return (
     <div className={cn("flex min-w-0 flex-col gap-0.5", className)} title={hint}>
       <span className="label-mono">{label}</span>
-      <span className="truncate text-[13px] text-ink tabular-nums">{value}</span>
+      <span className="text-[13px] text-ink tabular-nums">{value}</span>
     </div>
   );
 }

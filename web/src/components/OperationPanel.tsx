@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChevronRight, Play, RotateCcw, Square, X } from "lucide-react";
 import type { ColumnInfo, Estimate, Job, Plan, ValidateResponse } from "@/types";
 import { describePlan, newColumns } from "@/lib/describe";
-import { cn, formatCount, formatDuration, formatUsd, jobStateLabel, jobStateVariant } from "@/lib/utils";
+import { cn, formatCount, formatDuration, formatDurationShort, formatUsd, jobStateLabel, jobStateVariant } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -126,7 +126,7 @@ export default function OperationPanel({ plan, validation, validating, validatio
             usesModel ? (
               <div className="grid grid-cols-3 gap-3">
                 <Stat label="Rows" value={formatCount(est.semantic_rows)} hint="Rows the model will read" />
-                <Stat label="Time" value={formatDuration(est.quota_floor_seconds)} hint="Lower bound from the provider's rate limits" />
+                <Stat label="Time" value={formatDurationShort(est.quota_floor_seconds)} hint={`${formatDuration(est.quota_floor_seconds)} at least, from the provider's rate limits`} />
                 <Stat label="Cost" value={formatUsd(est.estimated_cost_usd)} hint={`${formatCount(est.provider_requests)} model requests, ${(est.input_tokens / 1000).toFixed(0)}k input tokens`} />
               </div>
             ) : (
