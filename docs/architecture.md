@@ -93,7 +93,9 @@ issue list back each time.
 `services.plans_validate` parses the plan, compiles it (`engine/exact.py`), runs `DESCRIBE` on every step so type
 errors surface before any money is spent, and computes an estimate: rows per semantic stage, Jev requests, input
 tokens (measured on a 120-row sample), cache hits (looked up on the same sample), cost, and the quota floor in
-seconds. Plans are stored by content hash; `jobs_submit` refers to them by `plan_hash`.
+seconds (requests and tokens against `JEV_RPM`/`JEV_TPS`, which are per-route limits, divided by the number of Jev
+routes that have a key; the estimate lists them as `jev_routes`). Plans are stored by content hash; `jobs_submit`
+refers to them by `plan_hash`.
 
 ### 3. Execute
 

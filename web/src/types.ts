@@ -47,6 +47,7 @@ export type Estimate = {
   estimated_cost_usd: number;
   candidate_pairs: number;
   quota_floor_seconds: number;
+  jev_routes?: string[];
   stages: Record<string, unknown>[];
 };
 

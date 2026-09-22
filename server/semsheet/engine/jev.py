@@ -314,20 +314,22 @@ def _vercel_response(data: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], i
     return answers, int(usage.get("inputTokens", 0)), int(usage.get("outputTokens", 0)), (float(cost) if cost is not None else None)
 
 
+def configured_route_names(api_key: str | None = None) -> list[str]:
+    """Routes in JEV_ROUTES that have a key, in order. Estimates use the count: limits apply per route."""
+    keys = {"direct": api_key or settings.typesafe_api_key, "openrouter": settings.openrouter_api_key, "vercel": settings.vercel_ai_gateway_api_key}
+    return [name for name in settings.jev_routes if keys.get(name)]
+
+
 def build_routes(api_key: str | None = None, base_url: str | None = None, concurrency: int | None = None) -> list[JevRoute]:
     per_route = concurrency or settings.jev_concurrency
     routes: list[JevRoute] = []
-    for name in settings.jev_routes:
+    for name in configured_route_names(api_key):
         if name == "direct":
-            key = api_key or settings.typesafe_api_key
-            if key:
-                routes.append(JevRoute("direct", (base_url or settings.typesafe_base_url).rstrip("/") + "/v1/systemone", key, lambda m: m, per_route))
+            routes.append(JevRoute("direct", (base_url or settings.typesafe_base_url).rstrip("/") + "/v1/systemone", api_key or settings.typesafe_api_key, lambda m: m, per_route))
         elif name == "openrouter":
-            if settings.openrouter_api_key:
-                routes.append(JevRoute("openrouter", settings.jev_openrouter_url, settings.openrouter_api_key, _openrouter_model, per_route))
+            routes.append(JevRoute("openrouter", settings.jev_openrouter_url, settings.openrouter_api_key, _openrouter_model, per_route))
         elif name == "vercel":
-            if settings.vercel_ai_gateway_api_key:
-                routes.append(JevRoute("vercel", settings.jev_vercel_url, settings.vercel_ai_gateway_api_key, _vercel_model, per_route, dialect="vercel"))
+            routes.append(JevRoute("vercel", settings.jev_vercel_url, settings.vercel_ai_gateway_api_key, _vercel_model, per_route, dialect="vercel"))
     return routes
 
 

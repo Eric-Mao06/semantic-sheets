@@ -276,4 +276,6 @@ class PlanEstimate(BaseModel):
     candidate_pairs: int = 0
     cache_hits_estimated: int = 0
     stages: list[dict[str, Any]] = Field(default_factory=list)
+    # Lower bound from the per-route rate limits, spread over every Jev route that has a key (`jev_routes`).
     quota_floor_seconds: float = 0.0
+    jev_routes: list[str] = Field(default_factory=list)

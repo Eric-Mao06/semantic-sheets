@@ -127,7 +127,13 @@ export default function OperationPanel({ plan, validation, validating, validatio
             usesModel ? (
               <div className="grid grid-cols-3 gap-3">
                 <Stat label="Rows" value={formatCount(est.semantic_rows)} hint="Rows the model will read" />
-                <Stat label="Time" value={formatDurationShort(est.quota_floor_seconds)} hint={`${formatDuration(est.quota_floor_seconds)} at least, from the provider's rate limits`} />
+                <Stat
+                  label="Time"
+                  value={formatDurationShort(est.quota_floor_seconds)}
+                  hint={`${formatDuration(est.quota_floor_seconds)} at least, from the rate limits of ${
+                    est.jev_routes && est.jev_routes.length > 1 ? `${est.jev_routes.length} model routes in parallel` : "the model route"
+                  }`}
+                />
                 <Stat label="Cost" value={formatUsd(est.estimated_cost_usd)} hint={`${formatCount(est.provider_requests)} model requests, ${(est.input_tokens / 1000).toFixed(0)}k input tokens`} />
               </div>
             ) : (

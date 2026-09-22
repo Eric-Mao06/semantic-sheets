@@ -6,6 +6,8 @@ import asyncio
 import json
 import uuid
 
+import pytest
+
 from semsheet.engine.executor import JobRunner
 from tests.conftest import FakeJev, H, run_job
 
@@ -57,6 +59,22 @@ def test_validate_reports_estimate_and_issues(client, support_dataset):
     assert r.status_code == 422
     issue = r.json()["error"]["details"]["issues"][0]
     assert issue["path"].startswith("steps[1]") and "ghost" in issue["message"]
+
+
+def test_estimate_time_floor_spreads_over_configured_routes(client, support_dataset, monkeypatch):
+    from semsheet.config import settings
+
+    monkeypatch.setattr(settings, "jev_routes", ("direct", "openrouter", "vercel"))
+    monkeypatch.setattr(settings, "openrouter_api_key", "")
+    monkeypatch.setattr(settings, "vercel_ai_gateway_api_key", "")
+    one = client.post("/api/plans/validate", json={"plan": plan_for(support_dataset)}, headers=H).json()["estimate"]
+    assert one["jev_routes"] == ["direct"] and one["quota_floor_seconds"] > 0
+    monkeypatch.setattr(settings, "openrouter_api_key", "or-key")
+    monkeypatch.setattr(settings, "vercel_ai_gateway_api_key", "vck-key")
+    three = client.post("/api/plans/validate", json={"plan": plan_for(support_dataset)}, headers=H).json()["estimate"]
+    assert three["jev_routes"] == ["direct", "openrouter", "vercel"]
+    assert three["provider_requests"] == one["provider_requests"] and three["input_tokens"] == one["input_tokens"]
+    assert three["quota_floor_seconds"] == pytest.approx(one["quota_floor_seconds"] / 3, abs=0.02)
 
 
 def test_end_to_end_job(client, database, support_dataset):

@@ -448,8 +448,13 @@ class Services:
                 total_tokens += tokens
                 total_requests += requests
                 total_attempts += attempts
-        rpm = settings.jev_requests_per_minute / 60.0
-        floor = max(total_tokens / settings.jev_tokens_per_second, total_requests / rpm) if total_requests else 0.0
+        # JEV_RPM / JEV_TPS are per-route limits and the client spreads packets over every configured route, so the
+        # floor shrinks with the number of routes that have a key.
+        routes = jev.configured_route_names()
+        n_routes = max(1, len(routes))
+        rps = settings.jev_requests_per_minute / 60.0 * n_routes
+        tps = settings.jev_tokens_per_second * n_routes
+        floor = max(total_tokens / tps, total_requests / rps) if total_requests else 0.0
         est_cost = jev.cost_usd(total_tokens)
         if est_cost > limits.spend_target_usd:
             warnings.append(f"estimated cost ${est_cost:.4f} exceeds spend_target_usd=${limits.spend_target_usd:.2f}; dispatch will stop at the target and the job will finish as partial")
@@ -460,7 +465,7 @@ class Services:
         return PlanEstimate(
             source_rows=source_rows, semantic_rows=semantic_rows, inference_attempts=total_attempts, provider_requests=total_requests,
             input_tokens=total_tokens, estimated_cost_usd=round(est_cost, 6), candidate_pairs=pairs_total, stages=stages, quota_floor_seconds=round(floor, 2),
-            cache_hits_estimated=cache_hits_total,
+            cache_hits_estimated=cache_hits_total, jev_routes=routes,
         )
 
     def plans_compile(self, ws: Workspace, dataset_id: str, version_id: str | None, prompt: str, previous_plan: dict[str, Any] | None = None, max_attempts: int = 3) -> dict[str, Any]:
