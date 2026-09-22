@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api";
-import type { ColumnInfo } from "../types";
+import { api } from "@/api";
+import type { ColumnInfo } from "@/types";
+import { cn, formatCount } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input, NativeSelect } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/misc";
+import { Slider } from "@/components/ui/slider";
 
 export type LocalFilterResult = { rowIds: number[]; count: number; ms: number; column: string };
 
@@ -10,6 +15,8 @@ type Props = {
   columns: ColumnInfo[];
   revision: number;
   enabled: boolean;
+  /** The parent owns the toggle (it sits in the views row); the panel stays mounted so the worker keeps its vectors. */
+  open: boolean;
   onResult: (r: LocalFilterResult | null) => void;
 };
 
@@ -20,8 +27,9 @@ const NUMERIC = new Set(["integer", "double", "boolean"]);
 /**
  * Threshold / label filter and sort over complete result vectors held in a Web Worker. Filtering and sorting
  * happen off the main thread and never hit the server; the resulting row-id list drives the grid view.
+ * Collapsed behind a single “Filter” button in the views row so the table stays uncluttered.
  */
-export default function QuickFilter({ rv, step, columns, revision, enabled, onResult }: Props) {
+export default function QuickFilter({ rv, step, columns, revision, enabled, open, onResult }: Props) {
   const workerRef = useRef<Worker | null>(null);
   const [column, setColumn] = useState<string>("");
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -37,7 +45,6 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
   const [includeNull, setIncludeNull] = useState(false);
   const [sort, setSort] = useState<"none" | "asc" | "desc">("none");
   const [active, setActive] = useState(false);
-  const [open, setOpen] = useState(false); // phones only: the controls are collapsed behind a toggle
   const reqId = useRef(0);
   const pending = useRef(new Map<number, (m: { count: number; rowIds: ArrayBuffer; ms: number }) => void>());
 
@@ -56,10 +63,7 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
     };
   }, []);
 
-  const candidates = useMemo(
-    () => columns.filter((c) => c.name.endsWith(".value") || c.name.endsWith(".confidence") || NUMERIC.has(c.type) || c.type === "text"),
-    [columns],
-  );
+  const candidates = useMemo(() => columns.filter((c) => c.name.endsWith(".value") || c.name.endsWith(".confidence") || NUMERIC.has(c.type) || c.type === "text"), [columns]);
 
   // Reset whenever the view changes.
   useEffect(() => {
@@ -94,7 +98,7 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
           setLabels(new Set((col.labels ?? []).map((_, i) => i)));
         }
         setActive(false);
-        if (!r.complete) setError("Some rows are still pending; the filter reflects the current partial result.");
+        if (!r.complete) setError("Some rows are still being worked on; the filter reflects the current partial result.");
       })
       .catch((e) => !cancelled && setError((e as Error).message))
       .finally(() => !cancelled && setLoading(false));
@@ -127,44 +131,29 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
   const step_ = loaded?.kind === "number" ? (loaded.max - loaded.min) / 100 || 0.01 : 1;
 
   return (
-    <div className={"quickfilter" + (open ? " open" : "")}>
-      <button className="qf-toggle mobile-only" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        Quick filter{active ? <span className="badge accent">on</span> : null}
-        <span className="grow" />
-        <span className="muted">{open ? "▴" : "▾"}</span>
-      </button>
-      <div className="qf-body">
-        <span className="muted desktop-only">Quick filter</span>
-        <select value={column} onChange={(e) => setColumn(e.target.value)}>
-          <option value="">choose column…</option>
+    <div className="border-b border-line bg-paper" hidden={!open}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+        <NativeSelect className="min-w-40" value={column} onChange={(e) => setColumn(e.target.value)}>
+          <option value="">Choose a column…</option>
           {candidates.map((c) => (
-            <option key={c.name} value={c.name}>
-              {c.name} ({c.type})
-            </option>
+            <option key={c.name} value={c.name}>{c.name}</option>
           ))}
-        </select>
-        {loading && <span className="spinner" />}
+        </NativeSelect>
+        {loading && <Spinner />}
         {loaded?.kind === "number" && (
-          <>
-            <label className="row qf-range">
-              min
-              <input type="range" min={loaded.min} max={loaded.max} step={step_} value={min ?? loaded.min} onChange={(e) => setMinText(e.target.value)} />
-              <input type="text" inputMode="decimal" style={{ width: 64 }} value={minText} onChange={(e) => setMinText(e.target.value)} />
-            </label>
-            <label className="row qf-range">
-              max
-              <input type="range" min={loaded.min} max={loaded.max} step={step_} value={max ?? loaded.max} onChange={(e) => setMaxText(e.target.value)} />
-              <input type="text" inputMode="decimal" style={{ width: 64 }} value={maxText} onChange={(e) => setMaxText(e.target.value)} />
-            </label>
-          </>
+          <div className="flex min-w-64 flex-1 items-center gap-2">
+            <Input type="text" inputMode="decimal" className="w-18 font-mono text-[12px]" value={minText} onChange={(e) => setMinText(e.target.value)} aria-label="Minimum" />
+            <Slider className="flex-1" min={loaded.min} max={loaded.max} step={step_} value={[min ?? loaded.min, max ?? loaded.max]} onValueChange={([a, b]) => { setMinText(String(a)); setMaxText(String(b)); }} />
+            <Input type="text" inputMode="decimal" className="w-18 font-mono text-[12px]" value={maxText} onChange={(e) => setMaxText(e.target.value)} aria-label="Maximum" />
+          </div>
         )}
         {loaded?.kind === "label" && (
-          <div className="chips">
+          <div className="flex flex-wrap gap-1">
             {loaded.labels.slice(0, 40).map((l, i) => (
-              <span
+              <button
+                type="button"
                 key={l}
-                className="chip"
-                style={{ cursor: "pointer", opacity: labels.has(i) ? 1 : 0.45, border: labels.has(i) ? "1px solid var(--accent)" : "1px solid transparent" }}
+                className={cn("rounded-[4px] border px-1.5 py-px font-mono text-[11.5px] transition-colors", labels.has(i) ? "border-ink bg-ink text-white" : "border-line bg-paper text-ink-muted hover:border-line-strong")}
                 onClick={() =>
                   setLabels((s) => {
                     const n = new Set(s);
@@ -175,27 +164,27 @@ export default function QuickFilter({ rv, step, columns, revision, enabled, onRe
                 }
               >
                 {l}
-              </span>
+              </button>
             ))}
-            {loaded.labels.length > 40 && <span className="muted">+{loaded.labels.length - 40} more</span>}
+            {loaded.labels.length > 40 && <span className="text-[12px] text-ink-muted">+{loaded.labels.length - 40} more</span>}
           </div>
         )}
         {loaded && (
           <>
-            <label className="row muted">
-              <input type="checkbox" checked={includeNull} onChange={(e) => setIncludeNull(e.target.checked)} /> include empty
+            <label className="flex items-center gap-1.5 text-[12px] text-ink-muted">
+              <input type="checkbox" className="accent-ink" checked={includeNull} onChange={(e) => setIncludeNull(e.target.checked)} /> include empty
             </label>
-            <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
-              <option value="none">no sort</option>
-              <option value="desc">sort desc</option>
-              <option value="asc">sort asc</option>
-            </select>
-            <button className="btn small primary" onClick={apply}>Apply locally</button>
-            {active && <button className="btn small" onClick={clear}>Clear</button>}
-            <span className="muted">{loaded.rows.toLocaleString()} rows in worker</span>
+            <NativeSelect className="w-auto" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+              <option value="none">keep order</option>
+              <option value="desc">highest first</option>
+              <option value="asc">lowest first</option>
+            </NativeSelect>
+            <Button size="sm" onClick={apply}>Apply</Button>
+            {active && <Button variant="ghost" size="sm" onClick={clear}>Clear</Button>}
+            <span className="text-[11.5px] text-ink-tertiary">{formatCount(loaded.rows)} rows</span>
           </>
         )}
-        {error && <span className="muted" style={{ color: "var(--warn)" }}>{error}</span>}
+        {error && <span className="text-[12px] text-warn">{error}</span>}
       </div>
     </div>
   );

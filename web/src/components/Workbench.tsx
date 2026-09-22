@@ -1,18 +1,30 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, subscribeJobEvents } from "../api";
-import { ViewController, type ViewSpec } from "../data/ViewController";
-import type { ColumnInfo, DatasetInfo, Job, JobEvent, Plan, Question, ResultDescribe, Row, ValidateResponse, WorkspaceInfo } from "../types";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowLeft, ChevronDown, CornerDownLeft, Filter, X } from "lucide-react";
+import { api, subscribeJobEvents } from "@/api";
+import { ViewController, type ViewSpec } from "@/data/ViewController";
+import type { ColumnInfo, DatasetInfo, Job, JobEvent, Plan, Question, ResultDescribe, Row, ValidateResponse, WorkspaceInfo } from "@/types";
+import { useIsMobile } from "@/hooks/useMediaQuery";
+import { opLabel } from "@/lib/describe";
+import { cn, formatCount, formatUsd } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Kbd, Notice, Spinner } from "@/components/ui/misc";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Toast } from "@/components/ui/toast";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Grid from "./Grid";
+import History, { type ExportInfo } from "./History";
 import Inspector from "./Inspector";
-import PlanPanel, { type Limits } from "./PlanPanel";
+import OperationPanel, { type Limits } from "./OperationPanel";
 import QuickFilter, { type LocalFilterResult } from "./QuickFilter";
-import Versions from "./Versions";
 import type { Preview } from "./Landing";
-import { useIsMobile } from "../hooks/useMediaQuery";
 
 type Props = { dataset: DatasetInfo; workspace: WorkspaceInfo; initialPrompt?: string; note?: string; preview?: Preview | null; onBack: () => void; onWorkspaceRefresh: () => void };
 
-type SideTab = "plan" | "inspect" | "versions";
+type SideTab = "plan" | "inspect" | "history";
 /** On small screens the table and the side panel are shown one at a time and switched with the bottom navigation. */
 type MobilePane = "table" | "panel";
 
@@ -42,8 +54,9 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
   const [pendingEdits, setPendingEdits] = useState<Map<string, unknown>>(new Map());
   const [updatesAvailable, setUpdatesAvailable] = useState(false);
   const [toast, setToast] = useState<string | null>(note ?? null);
-  const [exportInfo, setExportInfo] = useState<Parameters<typeof Versions>[0]["exportInfo"]>(null);
+  const [exportInfo, setExportInfo] = useState<ExportInfo>(null);
   const [localFilter, setLocalFilter] = useState<LocalFilterResult | null>(null);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [wsInfo, setWsInfo] = useState<WorkspaceInfo>(workspace);
   const unsubscribe = useRef<(() => void) | null>(null);
   const activeRvRef = useRef<string | null>(null);
@@ -55,6 +68,10 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
     setToast(m);
     window.setTimeout(() => setToast((t) => (t === m ? null : t)), 4500);
   }, []);
+
+  useEffect(() => {
+    if (note) window.setTimeout(() => setToast((t) => (t === note ? null : t)), 6000);
+  }, [note]);
 
   useEffect(() => controller.subscribe(() => setDataVersion((v) => v + 1)), [controller]);
 
@@ -132,7 +149,6 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
       setPlan(r.plan);
       setValidation(r);
       setValidationError(null);
-      showToast(`Planned with ${r.planner?.model} in ${((r.planner?.latency_ms ?? 0) / 1000).toFixed(1)}s`);
     } catch (e) {
       setCompileError((e as Error).message);
     } finally {
@@ -191,7 +207,8 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
                   else setUpdatesAvailable(true);
                 });
               }
-              showToast(`Job ${jj.state}${jj.terminal_reason ? ` (${jj.terminal_reason})` : ""} · $${jj.usage.spent_usd.toFixed(4)} · ${jj.usage.provider_requests} requests · ${jj.usage.cache_hits} cache hits`);
+              const outcome = jj.state === "succeeded" ? "Done" : jj.state === "partial" ? "Finished with some rows left" : jj.state === "failed" ? "Stopped with an error" : jj.state === "cancelled" ? "Stopped" : jj.state;
+              showToast(`${outcome} · ${formatUsd(jj.usage.spent_usd)}`);
             });
           }
         },
@@ -213,7 +230,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
       attachJob(j);
       setMobilePane("table"); // watch rows fill in as chunks commit
     } catch (e) {
-      showToast(`Could not start job: ${(e as Error).message}`);
+      showToast(`Could not start: ${(e as Error).message}`);
     }
   };
 
@@ -232,14 +249,14 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
       const r = await api.patch(activeRv, [{ row_id: rowId, column, value, reason: reason || undefined }]);
       userPickedStep.current = true;
       setActiveRv(r.result_version_id);
-      showToast("Correction saved as a new result version (the model output is preserved).");
+      showToast("Saved. The model's original answer is kept in History.");
     } catch (e) {
       setPendingEdits((m) => {
         const n = new Map(m);
         n.delete(`${rowId}:${column}`);
         return n;
       });
-      showToast(`Correction rejected: ${(e as Error).message}`);
+      showToast(`Could not save: ${(e as Error).message}`);
     }
   };
 
@@ -262,7 +279,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
   const doExport = async (format: "csv" | "parquet", raw: boolean) => {
     if (!activeRv) return;
     try {
-      setExportInfo(await api.export(activeRv, format, step === "source" ? undefined : step.endsWith("__review") ? step : step, raw));
+      setExportInfo(await api.export(activeRv, format, step === "source" ? undefined : step, raw));
     } catch (e) {
       showToast(`Export failed: ${(e as Error).message}`);
     }
@@ -272,12 +289,21 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
   const meta = controller.meta;
   const stageEntries = job ? Object.entries(job.progress.stages) : [];
   const examined = job?.progress.rows_examined ?? 0;
-  const remaining = job?.progress.rows_remaining ?? 0;
   const totalRows = stageEntries.reduce((a, [, s]) => a + s.rows_total, 0);
   const stepInfo = result?.steps.find((s) => s.id === step);
-  const semanticStep = result?.steps.find((s) => s.op === "semantic_annotate" || s.op === "semantic_match");
-  const isRunning = job && (job.state === "queued" || job.state === "running");
+  const isRunning = !!job && (job.state === "queued" || job.state === "running");
   const budgetLeft = Math.max(0, wsInfo.budget_usd - wsInfo.spent_usd);
+  const hasResult = !!result?.job_id;
+  const reviewViews = hasResult ? result!.steps.filter((s) => s.review_view) : [];
+  const intermediate = hasResult ? result!.steps.filter((s) => s.id !== result!.output) : [];
+  const viewingIntermediate = hasResult && step !== "source" && step !== result!.output && !step.endsWith("__review");
+
+  const pickStep = (id: string) => {
+    userPickedStep.current = true;
+    setLocalFilter(null);
+    setUpdatesAvailable(false);
+    setStep(id);
+  };
 
   const onCellClick = (idx: number, col: ColumnInfo) => {
     const row = controller.getRow(idx) ?? null;
@@ -286,7 +312,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
       setSideTab("inspect");
       return;
     }
-    // Phones: the first tap selects and shows the inspect chip; tapping the same cell again opens the Inspector.
+    // Phones: the first tap selects and shows the chip; tapping the same cell again opens the inspector.
     const key = { row: idx, col: col.name };
     if (lastTap.current && lastTap.current.row === key.row && lastTap.current.col === key.col) openPanel("inspect");
     lastTap.current = key;
@@ -295,160 +321,224 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
   const showSide = !isMobile || mobilePane === "panel";
   const showTable = !isMobile || mobilePane === "table";
 
+  const viewTab = (id: string, label: string, extra?: ReactNode) => (
+    <button
+      type="button"
+      key={id}
+      onClick={() => pickStep(id)}
+      className={cn("-mb-px inline-flex h-9 items-center gap-1.5 border-b-[1.5px] px-0.5 text-[12.5px] whitespace-nowrap transition-colors", step === id ? "border-ink text-ink" : "border-transparent text-ink-muted hover:text-ink")}
+    >
+      {label}
+      {extra}
+    </button>
+  );
+
   return (
-    <div className={"workbench" + (isMobile ? " is-mobile" : "")}>
-      <div className="topbar">
-        <button className="btn small" onClick={onBack} aria-label="Back to datasets">
-          ← <span className="desktop-only">Datasets</span>
-        </button>
-        <div className="titlebox">
-          <div className="title" title={dataset.name}>{dataset.name}</div>
-          <div className="sub">
-            {dataset.row_count.toLocaleString()} rows · {dataset.column_count} columns · v{dataset.version_no}
-            {dataset.import_report?.rejected_rows ? ` · ${dataset.import_report.rejected_rows} rejected rows` : ""}
-            {preview ? " · provisional preview" : ""}
+    <TooltipProvider>
+      <div className={cn("grid h-full grid-rows-[48px_auto_minmax(0,1fr)] overflow-hidden", isMobile && "grid-rows-[44px_auto_minmax(0,1fr)_auto] overscroll-contain")}>
+        {/* Top bar ---------------------------------------------------------------------------- */}
+        <header className="safe-x flex min-w-0 items-center gap-3 border-b border-line bg-paper px-3 [--safe-pad:12px]">
+          <Button variant="ghost" size="sm" onClick={onBack} aria-label="Back to your tables">
+            <ArrowLeft />
+            {!isMobile && "Tables"}
+          </Button>
+          <div className="min-w-0">
+            <div className="truncate text-[13.5px] font-medium text-ink" title={dataset.name}>{dataset.name}</div>
+            <div className="truncate font-mono text-[10.5px] tracking-[0.02em] text-ink-secondary">
+              {formatCount(dataset.row_count)} rows · {dataset.column_count} columns
+              {dataset.import_report?.rejected_rows ? ` · ${dataset.import_report.rejected_rows} rows skipped` : ""}
+              {preview ? " · preview" : ""}
+            </div>
           </div>
-        </div>
-        <span className="grow" />
-        <div className="budget desktop-only">
-          workspace spend <b>${wsInfo.spent_usd.toFixed(4)}</b> of ${wsInfo.budget_usd.toFixed(2)} · Jev {wsInfo.model} · planner {wsInfo.planner_model}
-        </div>
-        <a className="btn small desktop-only" href="/mcp" onClick={(e) => { e.preventDefault(); showToast("MCP endpoint: POST /mcp (Streamable HTTP) with the same bearer token."); }}>MCP</a>
-      </div>
-
-      <div className="commandbar">
-        <input
-          type="text"
-          placeholder={isMobile ? "Describe an operation… e.g. “Flag urgent cancellations”" : "Describe an operation… e.g. “Find customers trying to cancel an order because they cannot afford it, and rate how urgent each message is”"}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !compiling && compile()}
-          disabled={compiling}
-          enterKeyHint="go"
-          autoCapitalize="sentences"
-        />
-        <button className="btn primary" onClick={compile} disabled={compiling || !prompt.trim()}>
-          {compiling ? <span className="row"><span className="spinner" /> Planning…</span> : plan ? "Refine plan" : "Plan"}
-        </button>
-      </div>
-
-      <div className="main">
-        <div className="gridarea" hidden={!showTable}>
-          <div className="steptabs">
-            <span className={"tab" + (step === "source" ? " active" : "")} onClick={() => { userPickedStep.current = true; setLocalFilter(null); setStep("source"); }}>source</span>
-            {result?.job_id &&
-              result.steps.map((s) => (
-                <span key={s.id} className={"tab" + (step === s.id ? " active" : "")} onClick={() => { userPickedStep.current = true; setLocalFilter(null); setUpdatesAvailable(false); setStep(s.id); }}>
-                  {s.id}
-                  <span className="op">{s.op}</span>
-                  {s.provisional && <span className="badge pending" style={{ marginLeft: 4 }}>provisional</span>}
-                  {s.id === result.output && <span className="badge ok" style={{ marginLeft: 4 }}>output</span>}
+          <span className="grow" />
+          {!isMobile && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="font-mono text-[11px] tracking-[0.02em] text-ink-secondary tabular-nums">
+                  spent {formatUsd(wsInfo.spent_usd)} <span className="text-ink-tertiary">/ {formatUsd(wsInfo.budget_usd)}</span>
                 </span>
-              ))}
-            {result?.job_id &&
-              result.steps.filter((s) => s.review_view).map((s) => (
-                <span key={s.review_view} className={"tab" + (step === s.review_view ? " active" : "")} onClick={() => { userPickedStep.current = true; setLocalFilter(null); setStep(s.review_view!); }} title="Rows with uncertain, missing, failed or pending answers for this filter">
-                  {s.id} · review
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                Workspace spend. Judgements run on {wsInfo.model}; requests are planned by {wsInfo.planner_model}.
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </header>
+
+        {/* Command bar ------------------------------------------------------------------------ */}
+        <div className="safe-x border-b border-line bg-paper px-3 py-2.5 [--safe-pad:12px]">
+          <form
+            className="relative flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!compiling) void compile();
+            }}
+          >
+            <Input
+              className="h-10 flex-1 rounded-md bg-page pr-24 text-[14px] shadow-none"
+              placeholder={isMobile ? "What do you want to do with this table?" : "What do you want to do with this table? e.g. “Find customers trying to cancel because they can't afford it, and rate how urgent each message is”"}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              disabled={compiling}
+              enterKeyHint="go"
+              autoCapitalize="sentences"
+              aria-label="Describe what you want to do"
+            />
+            <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-1.5">
+              {prompt && !compiling && !isMobile && <Kbd className="text-ink-tertiary"><CornerDownLeft className="size-2.5" /></Kbd>}
+              <Button type="submit" size="sm" disabled={compiling || !prompt.trim()} className="h-7">
+                {compiling ? <Spinner className="text-white" /> : null}
+                {compiling ? "Thinking…" : plan ? "Update" : "Go"}
+              </Button>
+            </div>
+          </form>
+        </div>
+
+        {/* Main ------------------------------------------------------------------------------ */}
+        <div className={cn("grid min-h-0", isMobile ? "grid-cols-[minmax(0,1fr)]" : "grid-cols-[minmax(0,1fr)_420px] max-[1200px]:grid-cols-[minmax(0,1fr)_380px]")}>
+          <div className="flex min-h-0 min-w-0 flex-col" hidden={!showTable}>
+            {/* Views row */}
+            <div className="flex h-9 items-center gap-4 border-b border-line bg-paper px-3 scrollbar-none overflow-x-auto">
+              {viewTab("source", "Source")}
+              {hasResult && viewTab(result!.output, "Result", stepInfo?.provisional && step === result!.output ? <Badge variant="pending">updating</Badge> : undefined)}
+              {reviewViews.map((s) => viewTab(s.review_view!, reviewViews.length > 1 ? `Needs a look · ${s.id}` : "Needs a look"))}
+              {intermediate.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className={cn("-mb-px inline-flex h-9 items-center gap-1 border-b-[1.5px] px-0.5 text-[12.5px] whitespace-nowrap", viewingIntermediate ? "border-ink text-ink" : "border-transparent text-ink-muted hover:text-ink")}>
+                      {viewingIntermediate ? `Step · ${step}` : "Steps"}
+                      <ChevronDown className="size-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuLabel>Intermediate steps</DropdownMenuLabel>
+                    {intermediate.map((s) => (
+                      <DropdownMenuItem key={s.id} onSelect={() => pickStep(s.id)}>
+                        <span className="font-mono text-[11.5px]">{s.id}</span>
+                        <span className="ml-auto text-ink-muted">{opLabel(s.op)}</span>
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => pickStep(result!.output)}>Back to result</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              <span className="grow" />
+              {meta.total !== null && (
+                <span className="font-mono text-[11px] tracking-[0.02em] whitespace-nowrap text-ink-secondary tabular-nums">
+                  {formatCount(meta.total)} rows{meta.denominator !== null && meta.denominator !== meta.total ? ` of ${formatCount(meta.denominator)}` : ""}
+                  {meta.countStatus === "partial" ? " · so far" : ""}
                 </span>
-              ))}
-            <span className="grow" />
-            {meta.total !== null && (
-              <span className="muted" style={{ whiteSpace: "nowrap" }}>
-                <b>{meta.total.toLocaleString()}</b> rows{meta.denominator !== null && meta.denominator !== meta.total ? ` of ${meta.denominator.toLocaleString()} scanned` : ""}
-                {meta.countStatus === "partial" ? " · provisional" : ""}
-                {localFilter ? ` · local filter ${localFilter.ms.toFixed(0)} ms` : ""}
-              </span>
+              )}
+              {hasResult && stepInfo?.row_preserving && !step.endsWith("__review") && (
+                <Button variant={filterOpen || localFilter ? "secondary" : "ghost"} size="sm" className="h-6" onClick={() => setFilterOpen((o) => !o)} aria-expanded={filterOpen}>
+                  <Filter /> Filter{localFilter && <span className="ml-0.5 size-1.5 rounded-full bg-blue" aria-label="filter on" />}
+                </Button>
+              )}
+            </div>
+            {hasResult && stepInfo && stepInfo.row_preserving && (
+              <QuickFilter rv={activeRv!} step={step} columns={columns} revision={result!.revision} enabled={!step.endsWith("__review")} open={filterOpen} onResult={setLocalFilter} />
+            )}
+
+            {/* Grid */}
+            <div className="relative min-h-0 flex-1 bg-paper">
+              {updatesAvailable && (
+                <Button size="sm" className="absolute top-2.5 right-4 z-10 shadow-md" onClick={() => { setUpdatesAvailable(false); userPickedStep.current = false; if (result) setStep(result.output); setLocalFilter(null); }}>
+                  New rows ready · show result
+                </Button>
+              )}
+              {activeRv && columns.length > 0 ? (
+                <Grid controller={controller} columns={columns} dataVersion={dataVersion} editable={editable} pendingEdits={pendingEdits} compact={isMobile} onCellClick={onCellClick} onEdit={(rowId, column, value) => void correct(rowId, column, value, "inline edit")} />
+              ) : (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-[12.5px] text-ink-muted"><Spinner /> Loading…</div>
+              )}
+              {meta.error && <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6"><Notice tone="bad">{meta.error}</Notice></div>}
+              {isMobile && selected.row && selected.column && (
+                <div className="grain absolute right-2.5 bottom-2.5 left-2.5 z-10 flex items-center gap-2 rounded-md border border-line bg-paper px-2.5 py-2 shadow-lg">
+                  <span className="truncate font-mono text-[11.5px] text-ink">{selected.column.name}</span>
+                  <span className="text-[11.5px] text-ink-muted">row {selected.row._row_id}</span>
+                  <span className="grow" />
+                  <Button size="sm" onClick={() => openPanel("inspect")}>Look</Button>
+                  <Button variant="ghost" size="icon-sm" aria-label="Dismiss" onClick={() => { setSelected({ row: null, column: null }); lastTap.current = null; }}><X /></Button>
+                </div>
+              )}
+            </div>
+
+            {/* Job progress: a single quiet line, only while a job exists. */}
+            {job && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex h-7 items-center gap-3 border-t border-line bg-paper px-3 text-[11.5px] text-ink-muted">
+                    <Progress className="w-28 shrink-0" value={totalRows ? Math.min(100, (100 * examined) / totalRows) : isRunning ? 5 : 100} aria-label="Job progress" />
+                    <span className="truncate tabular-nums">
+                      {isRunning ? `Working… ${formatCount(examined)} of ${formatCount(totalRows)} rows` : `${job.state === "succeeded" ? "Done" : job.state === "partial" ? "Finished with rows left" : job.state === "failed" ? "Stopped with an error" : job.state === "cancelled" ? "Stopped" : job.state} · ${formatCount(examined)} rows`}
+                      {" · "}{formatUsd(job.usage.spent_usd)}
+                      {job.progress.errors ? ` · ${job.progress.errors} errors` : ""}
+                    </span>
+                    {isRunning && <Spinner className="ml-auto" />}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" align="start" className="font-mono text-[11px]">
+                  {stageEntries.map(([id, s]) => (
+                    <div key={id}>{id}: {s.rows_succeeded} ok · {s.rows_uncertain} unsure{s.rows_flagged ? ` · ${s.rows_flagged} near the cut` : ""} · {s.rows_missing} missing{s.rows_beyond_cap ? ` · ${s.rows_beyond_cap} beyond cap` : ""}</div>
+                  ))}
+                  <div>{job.usage.provider_requests} requests · {job.usage.cache_hits} cached · {(job.usage.input_tokens / 1000).toFixed(1)}k tokens</div>
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
-          {result?.job_id && stepInfo && stepInfo.row_preserving && (
-            <QuickFilter rv={activeRv!} step={step} columns={columns} revision={result.revision} enabled={!step.endsWith("__review")} onResult={setLocalFilter} />
-          )}
-          <div className="gridwrap">
-            {updatesAvailable && (
-              <button className="btn primary small updates" onClick={() => { setUpdatesAvailable(false); userPickedStep.current = false; if (result) setStep(result.output); setLocalFilter(null); }}>
-                Updates available · show result
-              </button>
-            )}
-            {activeRv && columns.length > 0 ? (
-              <Grid controller={controller} columns={columns} dataVersion={dataVersion} editable={editable} pendingEdits={pendingEdits} compact={isMobile} onCellClick={onCellClick} onEdit={(rowId, column, value) => void correct(rowId, column, value, "inline edit")} />
-            ) : (
-              <div className="overlay"><span className="spinner" />&nbsp; loading view…</div>
-            )}
-            {meta.error && <div className="overlay"><div className="error">{meta.error}</div></div>}
-            {isMobile && selected.row && selected.column && (
-              <div className="cellchip">
-                <span className="mono">{selected.column.name}</span>
-                <span className="muted">row {selected.row._row_id}</span>
-                <span className="grow" />
-                <button className="btn small primary" onClick={() => openPanel("inspect")}>Inspect</button>
-                <button className="btn small ghost" aria-label="Dismiss" onClick={() => { setSelected({ row: null, column: null }); lastTap.current = null; }}>✕</button>
-              </div>
-            )}
-          </div>
+
+          {/* Side panel ------------------------------------------------------------------------ */}
+          <aside className={cn("flex min-h-0 flex-col bg-paper", !isMobile && "border-l border-line")} hidden={!showSide}>
+            <Tabs value={sideTab} onValueChange={(v) => setSideTab(v as SideTab)} className="min-h-0 flex-1">
+              {!isMobile && (
+                <TabsList>
+                  <TabsTrigger value="plan">Operation{(plan || compileError) && <span className={cn("size-1.5 rounded-full", compileError ? "bg-bad" : "bg-blue")} />}</TabsTrigger>
+                  <TabsTrigger value="inspect">Cell{selected.row && <span className="size-1.5 rounded-full bg-ink-tertiary" />}</TabsTrigger>
+                  <TabsTrigger value="history">History</TabsTrigger>
+                </TabsList>
+              )}
+              <TabsContent value="plan" className="flex min-h-0 flex-col data-[state=inactive]:hidden">
+                <OperationPanel plan={plan} validation={validation} validating={validating} validationError={validationError} compileError={compileError} schema={dataset.schema} limits={limits} job={job} budgetLeftUsd={budgetLeft} onPlanChange={onPlanChange} onLimitsChange={(l) => { setLimits(l); if (plan) onPlanChange(plan); }} onRun={run} onCancel={cancel} onClear={() => { setPlan(null); setValidation(null); setCompileError(null); }} />
+              </TabsContent>
+              <TabsContent value="inspect" className="flex min-h-0 flex-col data-[state=inactive]:hidden">
+                {activeRv && <Inspector rv={activeRv} step={step} row={selected.row} column={selected.column} semanticStep={semanticStepForColumn(selected.column).stepId} questions={semanticStepForColumn(selected.column).questions} onCorrect={correct} />}
+              </TabsContent>
+              <TabsContent value="history" className="flex min-h-0 flex-col data-[state=inactive]:hidden">
+                <History rv={hasResult ? activeRv : null} activeRv={activeRv} jobs={jobs} onSelect={(rv) => { userPickedStep.current = false; setLocalFilter(null); setActiveRv(rv); setJob(jobs.find((j) => j.result_version_id === rv) ?? null); setMobilePane("table"); }} onExport={doExport} exportInfo={exportInfo} />
+              </TabsContent>
+            </Tabs>
+          </aside>
         </div>
 
-        <div className="side" hidden={!showSide}>
-          <div className="tabs">
-            <span className={"tab" + (sideTab === "plan" ? " active" : "")} onClick={() => setSideTab("plan")}>Operation</span>
-            <span className={"tab" + (sideTab === "inspect" ? " active" : "")} onClick={() => setSideTab("inspect")}>Inspect</span>
-            <span className={"tab" + (sideTab === "versions" ? " active" : "")} onClick={() => setSideTab("versions")}>Versions & export</span>
-          </div>
-          {sideTab === "plan" && (
-            <>
-              {compileError && <div className="error" style={{ margin: 12 }}>{compileError}</div>}
-              <PlanPanel plan={plan} validation={validation} validating={validating} validationError={validationError} schema={dataset.schema} limits={limits} job={job} budgetLeftUsd={budgetLeft} onPlanChange={onPlanChange} onLimitsChange={(l) => { setLimits(l); if (plan) onPlanChange(plan); }} onRun={run} onCancel={cancel} onClear={() => { setPlan(null); setValidation(null); }} />
-            </>
-          )}
-          {sideTab === "inspect" && activeRv && (
-            <Inspector rv={activeRv} step={step} row={selected.row} column={selected.column} semanticStep={semanticStepForColumn(selected.column).stepId} questions={semanticStepForColumn(selected.column).questions} onCorrect={correct} />
-          )}
-          {sideTab === "versions" && (
-            <Versions rv={result?.job_id ? activeRv : null} activeRv={activeRv} jobs={jobs} onSelect={(rv) => { userPickedStep.current = false; setLocalFilter(null); setActiveRv(rv); setJob(jobs.find((j) => j.result_version_id === rv) ?? null); setMobilePane("table"); }} onExport={doExport} exportInfo={exportInfo} />
-          )}
-        </div>
-      </div>
-
-      <div className="statusstrip">
-        {job ? (
-          <>
-            <span className={"badge " + (job.state === "running" ? "accent" : job.state === "succeeded" ? "ok" : job.state === "partial" ? "warn" : job.state === "failed" ? "bad" : "")}>{job.state}{job.terminal_reason ? ` · ${job.terminal_reason}` : ""}</span>
-            <div className="progress" title={`${examined} of ${totalRows} rows`}><div style={{ width: `${totalRows ? Math.min(100, (100 * examined) / totalRows) : 0}%` }} /></div>
-            <span><b>{examined.toLocaleString()}</b> examined</span>
-            <span><b>{remaining.toLocaleString()}</b> remaining</span>
-            <span><b>{job.progress.errors}</b> errors</span>
-            {stageEntries.map(([id, s]) => (
-              <span key={id} title="succeeded / uncertain / flagged near the cut / missing input">{id}: {s.rows_succeeded}✓ {s.rows_uncertain}?{s.rows_flagged ? ` ${s.rows_flagged}⚑` : ""} {s.rows_missing}∅{s.rows_beyond_cap ? ` · ${s.rows_beyond_cap} beyond cap` : ""}</span>
-            ))}
-            <span>spend <b>${job.usage.spent_usd.toFixed(4)}</b> · {job.usage.provider_requests} requests · {job.usage.cache_hits} cache hits · {(job.usage.input_tokens / 1000).toFixed(1)}k tokens</span>
-            {isRunning && <span className="spinner" />}
-          </>
-        ) : (
-          <span>{semanticStep ? "" : "No job running."} {meta.loading ? "loading…" : ""} cache {controller.cacheStats().blocks} blocks · {(controller.cacheStats().bytes / 1024).toFixed(0)} KB</span>
-        )}
-        <span className="grow" />
+        {/* Bottom navigation (phones) --------------------------------------------------------- */}
         {isMobile && (
-          <span>spend <b>${wsInfo.spent_usd.toFixed(4)}</b> of ${wsInfo.budget_usd.toFixed(2)}</span>
+          <nav className="flex border-t border-line bg-paper pb-[env(safe-area-inset-bottom,0px)]" aria-label="Sections">
+            {(
+              [
+                ["table", "Table", isRunning],
+                ["plan", "Operation", !!(plan || compileError)],
+                ["inspect", "Cell", !!selected.row],
+                ["history", "History", false],
+              ] as [string, string, boolean][]
+            ).map(([id, label, dot]) => {
+              const active = id === "table" ? mobilePane === "table" : mobilePane === "panel" && sideTab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={cn("inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 border-t-[1.5px] text-[12.5px] font-medium", active ? "border-ink text-ink" : "border-transparent text-ink-muted")}
+                  onClick={() => (id === "table" ? setMobilePane("table") : openPanel(id as SideTab))}
+                >
+                  {label}
+                  {dot && <span className={cn("size-1.5 rounded-full", id === "table" ? "animate-pulse bg-blue" : compileError && id === "plan" ? "bg-bad" : "bg-blue")} />}
+                </button>
+              );
+            })}
+          </nav>
         )}
-        {dataset.retention_expires_at && <span>retained until {new Date(dataset.retention_expires_at * 1000).toLocaleDateString()}</span>}
+        {toast && <Toast className={isMobile ? "bottom-[calc(64px+env(safe-area-inset-bottom,0px))]" : undefined}>{toast}</Toast>}
       </div>
-
-      {isMobile && (
-        <nav className="bottomnav" aria-label="Workbench sections">
-          <button className={mobilePane === "table" ? "active" : ""} onClick={() => setMobilePane("table")}>
-            Table{isRunning && <span className="dot accent" aria-label="job running" />}
-          </button>
-          <button className={mobilePane === "panel" && sideTab === "plan" ? "active" : ""} onClick={() => openPanel("plan")}>
-            Operation{(plan || compileError) && <span className={"dot" + (compileError ? " bad" : "")} />}
-          </button>
-          <button className={mobilePane === "panel" && sideTab === "inspect" ? "active" : ""} onClick={() => openPanel("inspect")}>
-            Inspect{selected.row && <span className="dot" />}
-          </button>
-          <button className={mobilePane === "panel" && sideTab === "versions" ? "active" : ""} onClick={() => openPanel("versions")}>
-            Versions
-          </button>
-        </nav>
-      )}
-      {toast && <div className="toast">{toast}</div>}
-    </div>
+    </TooltipProvider>
   );
 }
