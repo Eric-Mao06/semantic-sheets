@@ -15,18 +15,27 @@ type Props = {
   onEdit: (rowId: number, column: string, value: unknown) => void;
 };
 
+// Palette mirrors the CSS tokens in styles.css (Glide paints on canvas, so it cannot read CSS variables).
+const INK = "#201f23";
+const MUTED = "#767676";
+const TERTIARY = "#a2a2a2";
+const OK = "#2f8f1f";
+const WARN = "#b8791a";
+const BAD = "#d13b3b";
+const LINK = "#3030d7";
+
 const STATUS_THEME: Record<string, Partial<Theme>> = {
-  ok: { textDark: "#1f9d55", bgCell: "#f2fbf5" },
-  override: { textDark: "#2f6fed", bgCell: "#eef3ff" },
-  uncertain: { textDark: "#d98a0b", bgCell: "#fff8ea" },
-  missing: { textDark: "#6b7684", bgCell: "#f3f4f6" },
-  pending: { textDark: "#9aa3ad", bgCell: "#f6f7f9" },
-  failed: { textDark: "#d64545", bgCell: "#fdecec" },
-  input_too_long: { textDark: "#d64545", bgCell: "#fdecec" },
-  matched: { textDark: "#1f9d55", bgCell: "#f2fbf5" },
-  unmatched: { textDark: "#6b7684", bgCell: "#f3f4f6" },
-  no_candidates: { textDark: "#6b7684", bgCell: "#f3f4f6" },
-  skipped: { textDark: "#9aa3ad", bgCell: "#f6f7f9" },
+  ok: { textDark: OK, bgCell: "#f1f8ee" },
+  override: { textDark: LINK, bgCell: "#eeeefb" },
+  uncertain: { textDark: WARN, bgCell: "#f8f0e1" },
+  missing: { textDark: MUTED, bgCell: "#f3f3f5" },
+  pending: { textDark: TERTIARY, bgCell: "#fafafa" },
+  failed: { textDark: BAD, bgCell: "#fbf2f6" },
+  input_too_long: { textDark: BAD, bgCell: "#fbf2f6" },
+  matched: { textDark: OK, bgCell: "#f1f8ee" },
+  unmatched: { textDark: MUTED, bgCell: "#f3f3f5" },
+  no_candidates: { textDark: MUTED, bgCell: "#f3f3f5" },
+  skipped: { textDark: TERTIARY, bgCell: "#fafafa" },
 };
 
 function widthFor(c: ColumnInfo, compact: boolean): number {
@@ -48,7 +57,7 @@ export default function Grid({ controller, columns, dataVersion, editable, pendi
   const lastY = useRef(0);
 
   const gridColumns = useMemo<GridColumn[]>(
-    () => columns.map((c) => ({ id: c.name, title: c.name, width: widths[c.name] ?? widthFor(c, compact), themeOverride: c.role === "semantic" || c.name.includes(".") ? { bgHeader: "#eef3ff" } : undefined })),
+    () => columns.map((c) => ({ id: c.name, title: c.name, width: widths[c.name] ?? widthFor(c, compact), themeOverride: c.role === "semantic" || c.name.includes(".") ? { bgHeader: "#f8f0e1", textHeader: INK } : undefined })),
     [columns, widths, compact],
   );
 
@@ -72,14 +81,14 @@ export default function Grid({ controller, columns, dataVersion, editable, pendi
       if (v === null || v === undefined) {
         const status = c.name.includes(".") ? (controller.getCell(row, c.name.split(".")[0] + ".status").value as string | undefined) : undefined;
         const label = status === "pending" ? "pending" : status === "uncertain" ? "uncertain" : status === "missing" ? "missing input" : "";
-        return { kind: GridCellKind.Text, data: "", displayData: label, allowOverlay: isEditable, readonly: !isEditable, themeOverride: { textDark: "#9aa3ad" }, contentAlign: "left" } as GridCell;
+        return { kind: GridCellKind.Text, data: "", displayData: label, allowOverlay: isEditable, readonly: !isEditable, themeOverride: { textDark: TERTIARY }, contentAlign: "left" } as GridCell;
       }
       if (typeof v === "number") {
         const display = Number.isInteger(v) ? v.toLocaleString() : v.toFixed(c.name.endsWith(".score") || c.name.endsWith(".confidence") ? 2 : 3);
         return { kind: GridCellKind.Number, data: v, displayData: display, allowOverlay: false, contentAlign: "right" };
       }
       if (typeof v === "boolean") {
-        return { kind: GridCellKind.Text, data: v ? "true" : "false", displayData: v ? "true" : "false", allowOverlay: isEditable, readonly: !isEditable, themeOverride: v ? { textDark: "#1f9d55" } : { textDark: "#6b7684" }, contentAlign: "left" } as GridCell;
+        return { kind: GridCellKind.Text, data: v ? "true" : "false", displayData: v ? "yes" : "no", allowOverlay: isEditable, readonly: !isEditable, themeOverride: v ? { textDark: OK } : { textDark: MUTED }, contentAlign: "left" } as GridCell;
       }
       const s = String(v);
       const display = s.replace(/\s+/g, " ");
@@ -89,7 +98,7 @@ export default function Grid({ controller, columns, dataVersion, editable, pendi
         displayData: truncated ? display + " …" : display,
         allowOverlay: isEditable,
         readonly: !isEditable,
-        themeOverride: pendingEdits.has(pendingKey) ? { textDark: "#2f6fed", bgCell: "#eef3ff" } : undefined,
+        themeOverride: pendingEdits.has(pendingKey) ? { textDark: LINK, bgCell: "#eeeefb" } : undefined,
       } as GridCell;
     },
     // dataVersion forces Glide to re-read cells after blocks arrive
@@ -164,7 +173,26 @@ export default function Grid({ controller, columns, dataVersion, editable, pendi
       keybindings={{ search: true }}
       width="100%"
       height="100%"
-      theme={{ accentColor: "#2f6fed", accentLight: "#e8efff", baseFontStyle: "13px", headerFontStyle: "600 12.5px", bgHeader: "#f6f7f9", textHeader: "#1c2430", borderColor: "#e9ecef", cellHorizontalPadding: 8 }}
+      theme={{
+        accentColor: "#2b80ff",
+        accentLight: "#eaf2ff",
+        baseFontStyle: "13px",
+        headerFontStyle: "500 11px",
+        fontFamily: '"Geist Variable", ui-sans-serif, system-ui, sans-serif',
+        bgHeader: "#f3f3f5",
+        bgHeaderHasFocus: "#ececee",
+        bgHeaderHovered: "#ececee",
+        textHeader: MUTED,
+        textDark: INK,
+        textMedium: MUTED,
+        textLight: TERTIARY,
+        bgCell: "#ffffff",
+        bgCellMedium: "#fafafa",
+        borderColor: "#ececee",
+        horizontalBorderColor: "#f1f1f2",
+        cellHorizontalPadding: 10,
+        linkColor: LINK,
+      }}
     />
   );
 }

@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "./api";
+import { api } from "@/api";
+import type { DatasetInfo, WorkspaceInfo } from "@/types";
+import { Notice, Spinner } from "@/components/ui/misc";
 import Landing, { type Preview } from "./components/Landing";
 import Workbench from "./components/Workbench";
-import type { DatasetInfo, WorkspaceInfo } from "./types";
 
 export default function App() {
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [wsError, setWsError] = useState<string | null>(null);
   const [dataset, setDataset] = useState<DatasetInfo | null>(null);
   const [note, setNote] = useState<string | undefined>(undefined);
+  const [initialPrompt, setInitialPrompt] = useState<string | undefined>(undefined);
   const [preview, setPreview] = useState<Preview | null>(null);
 
   const refresh = useCallback(() => {
@@ -30,26 +32,28 @@ export default function App() {
 
   if (wsError) {
     return (
-      <div className="landing">
-        <h1>Semantic Spreadsheet</h1>
-        <div className="error" style={{ marginTop: 16 }}>
-          Cannot reach the API: {wsError}. Start the server (<code>uvicorn semsheet.main:app</code>) and reload.
-        </div>
+      <div className="mx-auto max-w-2xl px-6 pt-20">
+        <span className="font-mono text-[11px] tracking-[0.08em] text-ink-secondary uppercase">Semantic Sheet</span>
+        <h1 className="mt-6 font-display text-[32px] leading-tight text-ink">The server is not answering.</h1>
+        <Notice tone="bad" className="mt-6">
+          {wsError}. Start the API (<code className="font-mono">python -m semsheet.main</code>) and reload.
+        </Notice>
       </div>
     );
   }
   if (!workspace) {
     return (
-      <div className="landing">
-        <span className="spinner" /> loading workspace…
+      <div className="flex h-full items-center justify-center gap-2 text-[13px] text-ink-muted">
+        <Spinner /> Loading…
       </div>
     );
   }
   if (!dataset) {
     return (
       <Landing
-        onDataset={(ds, n) => {
+        onDataset={(ds, n, suggested) => {
           setNote(n);
+          setInitialPrompt(suggested);
           setDataset(ds);
           refresh();
         }}
@@ -63,11 +67,13 @@ export default function App() {
       dataset={dataset}
       workspace={workspace}
       note={note}
+      initialPrompt={initialPrompt}
       preview={preview}
       onBack={() => {
         setDataset(null);
         setPreview(null);
         setNote(undefined);
+        setInitialPrompt(undefined);
         refresh();
       }}
       onWorkspaceRefresh={refresh}

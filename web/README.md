@@ -1,32 +1,41 @@
-# React + TypeScript + Vite
+# Semantic Sheet — web
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 18 + TypeScript + Vite. Styling is Tailwind CSS v4 with a small set of shadcn-style primitives in
+`src/components/ui/` (Radix under the hood), so anything published in the shadcn registry format — including
+components from [21st.dev](https://21st.dev) — drops straight in:
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npx shadcn@latest add "https://21st.dev/r/<author>/<component>"
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`components.json` carries the registry aliases (`@/components/ui`, `@/lib/utils`) and points the CSS at
+`src/styles.css`, where the design tokens live.
+
+## Design
+
+Paper white, near-black ink, hairline rules, one blue. Labels are small mono caps (`label-mono`). Every surface
+carries a faint film grain: a page-wide fixed layer (`body::after`) plus the `grain` / `grain-dark` utilities on
+cards, notices and inverted buttons. Fonts ship with the bundle (`@fontsource`): Geist, Geist Mono and
+Instrument Serif for display headings.
+
+## Structure
+
+```
+src/components/ui/        button, input/textarea/native-select, badge, card, collapsible, tabs, tooltip,
+                          dialog, dropdown-menu, switch, slider, progress, toast, misc (label, spinner, stat…)
+src/components/           Landing, Workbench, OperationPanel (plain-language summary + Run),
+                          PlanEditor (full step editor behind “Details & edit”), Inspector, History,
+                          QuickFilter, Grid (Glide Data Grid)
+src/lib/describe.ts       plan → sentences (“Read “text” for every row and answer this question…”)
+src/lib/utils.ts          cn(), money / duration / count formatting, job-state wording
+src/data/ViewController   paged, cached result views for the grid
+src/worker/               local filter / sort over result vectors
+```
+
+## Scripts
+
+```bash
+npm run dev       # http://localhost:5173, proxies /api and /mcp to :8000
+npm run build     # tsc -b && vite build → dist/
+npm run lint      # oxlint
+```

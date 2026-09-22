@@ -7,7 +7,7 @@ TypeSafe **Jev** (`jev-1.13.0`); plain language is compiled into a typed plan by
 same operations are exposed to agents over **MCP** (Streamable HTTP).
 
 ```
-web/       React + TypeScript + Vite, Glide Data Grid, Web Workers (CSV preview, local filter/sort)
+web/       React + TypeScript + Vite, Tailwind + shadcn-style primitives, Glide Data Grid, Web Workers (CSV preview, local filter/sort)
 server/    FastAPI API, planner, exact engine (DuckDB), Jev executor, MCP server, worker process
 scripts/   prepare_samples.py - builds the demo datasets from the raw public downloads
 data/      SQLite metadata, Parquet datasets/results, exports, Jev answer cache (created at runtime)
@@ -116,7 +116,8 @@ so the code history stays small; open any `.mp4` there in the GitHub file viewer
 2. **Plan** (`planner.py`, `models.py`): the frontier model sees only the schema and a bounded sample and
    returns a typed plan (`semantic_annotate`, `filter`, `sort`, `aggregate`, `compute`, `join`,
    `semantic_match`, `project`). Plans are validated and estimated (rows, Jev requests, cost, cache hits)
-   before anything runs; users edit steps and questions in the Operation panel.
+   before anything runs. The Operation panel explains the plan in plain sentences with the estimate and a Run
+   button; the full step editor and safety limits sit behind “Details & edit”.
 3. **Execute** (`engine/executor.py`, `engine/jev.py`): rows are packed into multi-row Jev requests with
    token-bucket rate limits, retries, a content-addressed answer cache and usage accounting. Jobs run in
    restart-safe chunks with budget, request and deadline guards; partial results are queryable and resumable.
