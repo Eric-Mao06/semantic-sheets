@@ -1,0 +1,169 @@
+{
+  "plan_from": "planner-deepseek-v4.1-flash",
+  "dev_seed": 11,
+  "generated_at": "2026-09-22T04:50:42Z",
+  "scenarios": {
+    "support_requests": {
+      "note": "3000 Bitext messages disjoint from the benchmark sample (of 23927 available)",
+      "rows": 3000,
+      "job_state": "succeeded",
+      "error": null,
+      "seconds": 13.5,
+      "jev_usd": 0.032951,
+      "questions": {
+        "cancel_unaffordable": {
+          "instruction": "Judge whether the customer's text expresses that they want or need to cancel an order because they cannot afford it (financial hardship, cost or price concerns). The text may be in any language; judge only its meaning.",
+          "calibration": {
+            "mode": "auto",
+            "cut": 0.29,
+            "flag_margin": 0.1,
+            "n_scored": 3000,
+            "method": "otsu-v1",
+            "raw_cut": 0.29,
+            "clamped": false,
+            "planner_true_min": 0.7,
+            "planner_false_max": 0.3
+          },
+          "scores": {
+            "n": 3000,
+            "min": 0.01,
+            "p50": 0.01,
+            "p90": 0.02,
+            "p99": 0.04,
+            "max": 0.99,
+            "histogram": {
+              "0.0-0.1": 2993,
+              "0.1-0.2": 1,
+              "0.2-0.3": 0,
+              "0.3-0.4": 0,
+              "0.4-0.5": 1,
+              "0.5-0.6": 1,
+              "0.6-0.7": 0,
+              "0.7-0.8": 0,
+              "0.8-0.9": 1,
+              "0.9-1.0": 3
+            }
+          },
+          "under_calibrated_cut": {
+            "true": 6,
+            "false": 2994,
+            "flagged_near_cut": 0
+          },
+          "under_planner_thresholds": {
+            "true": 4,
+            "uncertain": 2,
+            "false": 2994
+          }
+        }
+      }
+    },
+    "cfpb_complaints": {
+      "note": "5000 CFPB complaints disjoint from the benchmark sample, same 4,000 non-credit-reporting + 1,000 credit-reporting mix",
+      "rows": 5000,
+      "job_state": "partial",
+      "error": null,
+      "seconds": 47.3,
+      "jev_usd": 0.011395,
+      "questions": {
+        "charges_after_cancel": {
+          "instruction": "Does this consumer complaint describe either (a) charges/fees that continued after the consumer cancelled, closed, or tried to cancel the service or account, or (b) recurring or subscription charges that were unauthorized or not consented to? The text may be in any language; judge by meaning, not by exact wording.",
+          "calibration": {
+            "mode": "auto",
+            "cut": 0.2,
+            "flag_margin": 0.1,
+            "n_scored": 4995,
+            "method": "otsu-v1",
+            "raw_cut": 0.125,
+            "clamped": true,
+            "planner_true_min": 0.7,
+            "planner_false_max": 0.3
+          },
+          "scores": {
+            "n": 4995,
+            "min": 0.01,
+            "p50": 0.02,
+            "p90": 0.05,
+            "p99": 0.18,
+            "max": 0.67,
+            "histogram": {
+              "0.0-0.1": 4831,
+              "0.1-0.2": 144,
+              "0.2-0.3": 8,
+              "0.3-0.4": 3,
+              "0.4-0.5": 0,
+              "0.5-0.6": 0,
+              "0.6-0.7": 9,
+              "0.7-0.8": 0,
+              "0.8-0.9": 0,
+              "0.9-1.0": 0
+            }
+          },
+          "under_calibrated_cut": {
+            "true": 20,
+            "false": 4975,
+            "flagged_near_cut": 152
+          },
+          "under_planner_thresholds": {
+            "true": 0,
+            "uncertain": 12,
+            "false": 4983
+          }
+        }
+      }
+    },
+    "airbnb_reviews": {
+      "note": "1200 reviews disjoint from the benchmark sample; none contains the Wi-Fi keyword (the benchmark took all of those)",
+      "rows": 1200,
+      "job_state": "succeeded",
+      "error": null,
+      "seconds": 4.4,
+      "jev_usd": 0.013107,
+      "questions": {
+        "unreliable_wifi": {
+          "instruction": "Does this guest review report that the Wi-Fi / internet connection at the property was unreliable, weak, slow, spotty, disconnecting, or otherwise problematic? The review text may be written in any language; judge the meaning, not the exact words.",
+          "calibration": {
+            "mode": "auto",
+            "cut": 0.2,
+            "flag_margin": 0.1,
+            "n_scored": 1200,
+            "method": "otsu-v1",
+            "raw_cut": 0.02,
+            "clamped": true,
+            "planner_true_min": 0.7,
+            "planner_false_max": 0.3
+          },
+          "scores": {
+            "n": 1200,
+            "min": 0.01,
+            "p50": 0.02,
+            "p90": 0.02,
+            "p99": 0.02,
+            "max": 0.08,
+            "histogram": {
+              "0.0-0.1": 1200,
+              "0.1-0.2": 0,
+              "0.2-0.3": 0,
+              "0.3-0.4": 0,
+              "0.4-0.5": 0,
+              "0.5-0.6": 0,
+              "0.6-0.7": 0,
+              "0.7-0.8": 0,
+              "0.8-0.9": 0,
+              "0.9-1.0": 0
+            }
+          },
+          "under_calibrated_cut": {
+            "true": 0,
+            "false": 1200,
+            "flagged_near_cut": 0
+          },
+          "under_planner_thresholds": {
+            "true": 0,
+            "uncertain": 0,
+            "false": 1200
+          }
+        }
+      }
+    }
+  }
+}
