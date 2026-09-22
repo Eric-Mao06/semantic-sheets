@@ -5,7 +5,7 @@ import { ViewController, type ViewSpec } from "@/data/ViewController";
 import type { ColumnInfo, DatasetInfo, Job, JobEvent, Plan, Question, ResultDescribe, Row, ValidateResponse, WorkspaceInfo } from "@/types";
 import { useIsMobile } from "@/hooks/useMediaQuery";
 import { opLabel } from "@/lib/describe";
-import { cn, formatCount, formatUsd } from "@/lib/utils";
+import { cn, formatCount, formatUsd, jobStateLabel } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -207,8 +207,8 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
                   else setUpdatesAvailable(true);
                 });
               }
-              const outcome = jj.state === "succeeded" ? "Done" : jj.state === "partial" ? "Finished with some rows left" : jj.state === "failed" ? "Stopped with an error" : jj.state === "cancelled" ? "Stopped" : jj.state;
-              showToast(`${outcome} · ${formatUsd(jj.usage.spent_usd)}`);
+              const outcome = jobStateLabel(jj.state);
+              showToast(`${outcome[0].toUpperCase()}${outcome.slice(1)} · ${formatUsd(jj.usage.spent_usd)}`);
             });
           }
         },
@@ -471,7 +471,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
                   <div className="flex h-7 items-center gap-3 border-t border-line bg-paper px-3 text-[11.5px] text-ink-muted">
                     <Progress className="w-28 shrink-0" value={totalRows ? Math.min(100, (100 * examined) / totalRows) : isRunning ? 5 : 100} aria-label="Job progress" />
                     <span className="truncate tabular-nums">
-                      {isRunning ? `Working… ${formatCount(examined)} of ${formatCount(totalRows)} rows` : `${job.state === "succeeded" ? "Done" : job.state === "partial" ? "Finished with rows left" : job.state === "failed" ? "Stopped with an error" : job.state === "cancelled" ? "Stopped" : job.state} · ${formatCount(examined)} rows`}
+                      {isRunning ? `Working… ${formatCount(examined)} of ${formatCount(totalRows)} rows` : `${jobStateLabel(job.state)[0].toUpperCase()}${jobStateLabel(job.state).slice(1)} · ${formatCount(examined)} rows`}
                       {" · "}{formatUsd(job.usage.spent_usd)}
                       {job.progress.errors ? ` · ${job.progress.errors} errors` : ""}
                     </span>

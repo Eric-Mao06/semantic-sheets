@@ -150,8 +150,8 @@
   @apply border border-line;
 }
 
-/* Film grain. A tiled SVG noise texture multiplied over the element; the element keeps its own
-   stacking so the overlay never intercepts pointer events. */
+/* Film grain. A tiled SVG noise texture multiplied over the element. The overlay sits above the
+   element's content but never intercepts pointer events. */
 @utility grain {
   position: relative;
   isolation: isolate;
@@ -162,14 +162,10 @@
     z-index: 1;
     pointer-events: none;
     border-radius: inherit;
-    opacity: 0.55;
+    opacity: 0.9;
     mix-blend-mode: multiply;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.35 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.55 0 0 0 0 0.55 0 0 0 0 0.55 0 0 0 0.3 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     background-size: 160px 160px;
-  }
-  & > * {
-    position: relative;
-    z-index: 2;
   }
 }
 
@@ -184,32 +180,29 @@
     z-index: 1;
     pointer-events: none;
     border-radius: inherit;
-    opacity: 0.35;
+    opacity: 0.55;
     mix-blend-mode: screen;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     background-size: 160px 160px;
   }
-  & > * {
-    position: relative;
-    z-index: 2;
-  }
 }
 
-/* Page-wide paper texture, very faint. */
-body::before {
+/* Page-wide film grain: a fixed, click-through layer over everything (including the canvas grid). */
+body::after {
   content: "";
   position: fixed;
   inset: 0;
-  z-index: 0;
+  z-index: 2147483000;
   pointer-events: none;
-  opacity: 0.32;
+  opacity: 0.7;
   mix-blend-mode: multiply;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.55 0 0 0 0 0.55 0 0 0 0 0.55 0 0 0 0.18 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 200px 200px;
 }
-#root {
-  position: relative;
-  z-index: 1;
+@media print {
+  body::after {
+    display: none;
+  }
 }
 
 @utility scrollbar-none {

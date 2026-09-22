@@ -26,3 +26,23 @@ export function formatDuration(seconds: number): string {
 export function formatCount(n: number): string {
   return n.toLocaleString("en-US");
 }
+
+type JobState = "queued" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
+
+/** Job states in everyday words. */
+export function jobStateLabel(state: JobState | string): string {
+  return (
+    {
+      queued: "waiting",
+      running: "running",
+      succeeded: "done",
+      partial: "partly done",
+      failed: "error",
+      cancelled: "stopped",
+    }[state] ?? state
+  );
+}
+
+export function jobStateVariant(state: JobState | string): "ok" | "warn" | "bad" | "blue" | "default" {
+  return state === "succeeded" ? "ok" : state === "partial" ? "warn" : state === "failed" ? "bad" : state === "running" || state === "queued" ? "blue" : "default";
+}

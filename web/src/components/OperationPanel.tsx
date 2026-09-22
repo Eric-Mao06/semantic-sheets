@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChevronRight, Play, RotateCcw, Square, X } from "lucide-react";
 import type { ColumnInfo, Estimate, Job, Plan, ValidateResponse } from "@/types";
 import { describePlan, newColumns } from "@/lib/describe";
-import { cn, formatCount, formatDuration, formatUsd } from "@/lib/utils";
+import { cn, formatCount, formatDuration, formatUsd, jobStateLabel, jobStateVariant } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -79,7 +79,6 @@ export default function OperationPanel({ plan, validation, validating, validatio
         <header className="flex items-start gap-2">
           <div className="min-w-0 grow">
             <h3 className="text-[15px] font-medium tracking-[-0.01em] text-ink">{plan.title ?? "Your operation"}</h3>
-            {plan.description && <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">{plan.description}</p>}
           </div>
           <Button variant="ghost" size="icon-sm" onClick={onClear} aria-label="Discard this operation" title="Discard">
             <X />
@@ -92,7 +91,17 @@ export default function OperationPanel({ plan, validation, validating, validatio
             {sentences.map((s, i) => (
               <li key={s.id} className="flex gap-2.5 text-[13px] leading-relaxed text-ink-body">
                 <span className="mt-[3px] inline-flex size-4.5 shrink-0 items-center justify-center rounded-full border border-line-strong font-mono text-[10px] text-ink-muted tabular-nums">{i + 1}</span>
-                <span>{s.text}</span>
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <span>{s.text}</span>
+                  {s.questions?.map((q) => (
+                    <div key={q.name} className="grain flex flex-col gap-0.5 rounded-md border-l-2 border-line-strong bg-field/60 py-1.5 pr-2.5 pl-3">
+                      <span className="text-[12px] text-ink-muted">
+                        {q.lead} <span className="font-mono text-[11px] text-ink-tertiary">→ {q.name}</span>
+                      </span>
+                      <span className="text-[12.5px] leading-relaxed text-ink italic">“{q.prompt}”</span>
+                    </div>
+                  ))}
+                </div>
               </li>
             ))}
           </ol>
@@ -139,7 +148,7 @@ export default function OperationPanel({ plan, validation, validating, validatio
         {job && (
           <section className="flex flex-col gap-2">
             <div className="flex items-center gap-2 text-[12.5px]">
-              <Badge variant={running ? "blue" : job.state === "succeeded" ? "ok" : job.state === "partial" ? "warn" : job.state === "failed" ? "bad" : "default"}>{running ? "running" : job.state}</Badge>
+              <Badge variant={jobStateVariant(job.state)}>{jobStateLabel(job.state)}</Badge>
               <span className="text-ink-muted">
                 {running ? `${formatCount(examined)} of ${formatCount(total)} rows` : `${formatCount(examined)} rows · ${formatUsd(job.usage.spent_usd)}`}
                 {job.terminal_reason && !running ? ` · ${job.terminal_reason.replace(/_/g, " ")}` : ""}
@@ -156,7 +165,13 @@ export default function OperationPanel({ plan, validation, validating, validatio
             Details &amp; edit
             <span className="ml-1 text-ink-tertiary">· {plan.steps.length} step{plan.steps.length === 1 ? "" : "s"}{validation ? ` · ${validation.plan_hash.slice(0, 8)}` : ""}</span>
           </CollapsibleTrigger>
-          <CollapsibleContent>
+          <CollapsibleContent className="flex flex-col gap-4">
+            {plan.description && (
+              <div className="flex flex-col gap-1">
+                <span className="label-mono">Planner notes</span>
+                <p className="text-[12.5px] leading-relaxed text-ink-muted">{plan.description}</p>
+              </div>
+            )}
             <PlanEditor plan={plan} schema={schema} limits={limits} onPlanChange={onPlanChange} onLimitsChange={onLimitsChange} />
           </CollapsibleContent>
         </Collapsible>

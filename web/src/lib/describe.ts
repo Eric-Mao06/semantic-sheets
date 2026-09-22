@@ -5,7 +5,7 @@ import type { Expr, Plan, Question, Step } from "@/types";
  * someone who has never seen the step JSON. This is what the Operation panel shows by default.
  */
 
-export type StepSentence = { id: string; text: string; produces?: string[] };
+export type StepSentence = { id: string; text: string; produces?: string[]; questions?: { name: string; kind: Question["kind"]; lead: string; prompt: string }[] };
 
 const OP_WORDS: Record<string, string> = {
   eq: "is",
@@ -66,15 +66,15 @@ function list(items: string[], conj = "and"): string {
   return `${items.slice(0, -1).join(", ")} ${conj} ${items[items.length - 1]}`;
 }
 
-function describeQuestion(q: Question): string {
-  const instr = q.instruction.trim().replace(/\s+/g, " ");
-  if (q.kind === "boolean") return `decide yes or no: ${instr}`;
+function describeQuestion(q: Question): { name: string; kind: Question["kind"]; lead: string; prompt: string } {
+  const prompt = q.instruction.trim().replace(/\s+/g, " ");
+  if (q.kind === "boolean") return { name: q.name, kind: q.kind, lead: "Answer yes or no:", prompt };
   if (q.kind === "category") {
     const labels = Object.keys(q.options ?? {});
-    return `sort each row into one of ${labels.length} categories (${list(labels.map((l) => `“${l}”`), "or")}) — ${instr}`;
+    return { name: q.name, kind: q.kind, lead: `Pick one of ${list(labels.map((l) => `“${l}”`), "or")}:`, prompt };
   }
   const lv = q.levels ?? [];
-  return lv.length >= 2 ? `rate each row from “${lv[0]}” to “${lv[lv.length - 1]}” — ${instr}` : `score each row — ${instr}`;
+  return { name: q.name, kind: q.kind, lead: lv.length >= 2 ? `Rate from “${lv[0]}” to “${lv[lv.length - 1]}”:` : "Give a score:", prompt };
 }
 
 /** Steps that lead to the output, in execution order; falls back to plan order if the chain is broken. */
@@ -96,8 +96,7 @@ export function describeStep(s: Step, isOutput: boolean): StepSentence {
     case "semantic_annotate": {
       const cols = list(s.columns.map(humanColumn));
       const qs = s.questions.map(describeQuestion);
-      const intro = `Read ${cols} for every row and ${qs.length === 1 ? "" : `answer ${qs.length} questions: `}`;
-      return { id: s.id, text: `${intro}${qs.length === 1 ? qs[0] : qs.map((q, i) => `(${i + 1}) ${q}`).join("; ")}.`, produces: s.questions.map((q) => q.name) };
+      return { id: s.id, text: `Read ${cols} for every row and answer ${qs.length === 1 ? "this question" : `these ${qs.length} questions`}.`, questions: qs, produces: s.questions.map((q) => q.name) };
     }
     case "filter":
       return { id: s.id, text: `Keep only the rows where ${humanWhere(s.where)}.${s.unknown_policy === "exclude" ? " Rows the model was unsure about are left out." : s.unknown_policy === "include" ? "" : " Rows the model was unsure about are set aside for review."}` };

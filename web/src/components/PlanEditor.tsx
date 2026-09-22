@@ -199,11 +199,10 @@ function StepEditor({ step, index, inputs, onChange, onRemove, isOutput, onMakeO
   const [raw, setRaw] = useState<string | null>(null);
   return (
     <div className="grain flex flex-col gap-2.5 rounded-md border border-line bg-paper p-3">
-      <header className="flex flex-wrap items-center gap-2 text-[12.5px]">
-        <span className="inline-flex size-5 items-center justify-center rounded-full bg-ink font-mono text-[10.5px] text-white">{index + 1}</span>
-        <span className="font-medium text-ink">{opLabel(step.op)}</span>
-        <span className="font-mono text-[11px] text-ink-tertiary">{step.id} ← {step.input}</span>
-        <span className="grow" />
+      <header className="flex items-center gap-2 text-[12.5px]">
+        <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-ink font-mono text-[10.5px] text-white">{index + 1}</span>
+        <span className="shrink-0 font-medium text-ink">{opLabel(step.op)}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-tertiary" title={`${step.id} ← ${step.input}`}>{step.id} ← {step.input}</span>
         {isOutput ? <Badge variant="ink">result</Badge> : <Button variant="ghost" size="sm" onClick={onMakeOutput}>use as result</Button>}
         <Button variant="ghost" size="icon-sm" onClick={onRemove} aria-label="Remove step"><X /></Button>
       </header>
@@ -374,9 +373,8 @@ function QuestionEditor({ q, onChange, onRemove }: { q: Question; onChange: (q: 
   return (
     <div className="flex flex-col gap-2 rounded-md border-l-2 border-ink/70 bg-field/60 px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <Input type="text" className="w-36 font-mono text-[12px]" value={q.name} onChange={(e) => onChange({ ...q, name: e.target.value.replace(/[^A-Za-z0-9_]/g, "_") })} />
-        <Badge>{q.kind === "boolean" ? "yes / no" : q.kind}</Badge>
-        <span className="grow" />
+        <Input type="text" className="min-w-0 flex-1 font-mono text-[12px]" value={q.name} onChange={(e) => onChange({ ...q, name: e.target.value.replace(/[^A-Za-z0-9_]/g, "_") })} />
+        <Badge className="shrink-0">{q.kind === "boolean" ? "yes / no" : q.kind}</Badge>
         <Button variant="ghost" size="icon-sm" onClick={onRemove} aria-label="Remove question"><X /></Button>
       </div>
       <Textarea value={q.instruction} onChange={(e) => onChange({ ...q, instruction: e.target.value })} />

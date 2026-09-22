@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowUpRight, ChevronDown, Download } from "lucide-react";
 import { api } from "@/api";
 import type { Job } from "@/types";
-import { cn, formatCount, formatUsd } from "@/lib/utils";
+import { cn, formatCount, formatUsd, jobStateLabel, jobStateVariant } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -20,10 +20,6 @@ type Props = {
   onExport: (format: "csv" | "parquet", raw: boolean) => Promise<void>;
   exportInfo: ExportInfo;
 };
-
-function stateVariant(state: Job["state"]) {
-  return state === "succeeded" ? "ok" : state === "partial" ? "warn" : state === "failed" ? "bad" : state === "running" || state === "queued" ? "blue" : "default";
-}
 
 function when(ts: number): string {
   const d = new Date(ts * 1000);
@@ -90,7 +86,7 @@ export default function History({ rv, activeRv, jobs, onSelect, onExport, export
             const active = j.result_version_id === activeRv;
             return (
               <li key={j.job_id} className={cn("flex items-center gap-3 px-3 py-2 text-[12.5px]", active && "bg-field/70")}>
-                <Badge variant={stateVariant(j.state)}>{j.state}</Badge>
+                <Badge variant={jobStateVariant(j.state)}>{jobStateLabel(j.state)}</Badge>
                 <div className="min-w-0 grow">
                   <div className="truncate text-ink">{when(j.created_at)}</div>
                   <div className="truncate text-[11.5px] text-ink-muted">
