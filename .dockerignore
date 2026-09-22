@@ -1,0 +1,14 @@
+.git
+.venv
+**/.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+**/.pytest_cache
+web/node_modules
+web/dist
+data
+benchmarks
+walkthroughs
+*.log
+.env

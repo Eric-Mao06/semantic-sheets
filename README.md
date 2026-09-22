@@ -65,6 +65,23 @@ sends it as `Authorization: Bearer demo-token`, and MCP clients use the same hea
 BANKING77, WDC product matching, Online Retail II) into bounded demo CSVs in `data/samples/`. The landing page
 lists them under "Sample datasets"; each card carries an example operation.
 
+## Deploy (Railway)
+
+The root `Dockerfile` builds the frontend and serves it, the API and the MCP endpoint from one FastAPI
+process on `$PORT`, with the job worker running alongside it (`scripts/start.sh`, `SEMSHEET_WORKERS` sets the
+number of workers). `railway.json` selects the Dockerfile builder and the `/api/health` health check.
+
+```bash
+railway up                              # from the repo root; creates the project + service on first run
+railway volume add --mount-path /app/data   # SQLite metadata, Parquet datasets/results, exports, Jev cache
+railway variable set OPENAI_API_KEY=sk-... OPENROUTER_API_KEY=sk-or-... TYPESAFE_API_KEY=apikey_... SEMSHEET_DEMO_TOKEN=<token>
+railway domain
+```
+
+Metadata lives in SQLite on the volume, so keep the service at one replica. Without `TYPESAFE_API_KEY`, set
+`OPENROUTER_API_KEY` and Jev runs over OpenRouter only (the `direct` route is skipped). The sample datasets
+are not part of the image; copy `data/samples/*.csv` onto the volume (`railway volume files`) or upload CSVs.
+
 ## Test
 
 ```bash
