@@ -218,7 +218,8 @@ details summary { cursor: pointer; color: var(--muted); }
   .main { grid-template-columns: minmax(0, 1fr); }
   .side { border-left: none; }
   .side .tabs { display: none; } /* the bottom navigation switches sections on phones */
-  .side .body { padding: 10px; }
+  .side .body { padding: 10px 10px 0; }
+  .side .body > :last-child:not(.runbar) { margin-bottom: 10px; }
   .steptabs { padding: 4px 8px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
   .steptabs::-webkit-scrollbar { display: none; }
   .steptabs .muted { font-size: 12px; }
