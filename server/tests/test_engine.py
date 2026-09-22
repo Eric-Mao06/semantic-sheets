@@ -123,9 +123,10 @@ def test_client_spreads_packets_over_routes_and_fails_over(monkeypatch):
 
     from semsheet.config import settings
 
-    monkeypatch.setattr(settings, "jev_routes", ("direct", "openrouter"))
+    monkeypatch.setattr(settings, "jev_routes", ("direct", "openrouter", "vercel"))
     monkeypatch.setattr(settings, "typesafe_api_key", "ts-key")
     monkeypatch.setattr(settings, "openrouter_api_key", "or-key")
+    monkeypatch.setattr(settings, "vercel_ai_gateway_api_key", "vck-key")
     monkeypatch.setattr(settings, "jev_max_retries", 3)
     seen: list[tuple[str, str, str]] = []
     direct_calls = {"n": 0}
@@ -134,12 +135,21 @@ def test_client_spreads_packets_over_routes_and_fails_over(monkeypatch):
         import json as _json
 
         body = _json.loads(request.content)
-        route = "openrouter" if "openrouter" in request.url.host else "direct"
+        host = request.url.host
+        route = "openrouter" if "openrouter" in host else "vercel" if "vercel" in host else "direct"
         seen.append((route, request.headers["authorization"], body["model"]))
         if route == "direct":
             direct_calls["n"] += 1
             if direct_calls["n"] == 1:
                 return httpx.Response(429, headers={"retry-after": "0"})
+        if route == "vercel":
+            # Vercel AI Gateway spells booleans "boolean"/"probability" and usage in camelCase.
+            assert request.url.path == "/v1/evaluate"
+            assert all(q["type"] == "boolean" for q in body["questions"].values())
+            answers = {k: {"type": "boolean", "probability": 0.9} for k in body["questions"]}
+            meta = {"gateway": {"cost": "0.0000042", "marketCost": "0.0000042"}}
+            return httpx.Response(200, json={"model": body["model"], "answers": answers, "usage": {"inputTokens": 100, "outputTokens": 5}, "providerMetadata": meta})
+        assert all(q["type"] == "noul" for q in body["questions"].values())
         answers = {k: {"type": "noul", "noul": 0.9} for k in body["questions"]}
         usage = {"input_tokens": 100, "output_tokens": 5}
         if route == "openrouter":
@@ -147,11 +157,11 @@ def test_client_spreads_packets_over_routes_and_fails_over(monkeypatch):
         return httpx.Response(200, json={"model": body["model"], "answers": answers, "usage": usage})
 
     q = Question.model_validate({"name": "q", "kind": "boolean", "instruction": "Is it x?", "criteria": {"true": "t", "false": "f"}})
-    packets, _ = jev.pack([jev.PacketItem(row_id=i, payload={"text": f"row {i}"}, questions=[q]) for i in range(4)], 1)
+    packets, _ = jev.pack([jev.PacketItem(row_id=i, payload={"text": f"row {i}"}, questions=[q]) for i in range(6)], 1)
 
     async def run():
         client = jev.JevClient()
-        assert [r.name for r in client.routes] == ["direct", "openrouter"]
+        assert [r.name for r in client.routes] == ["direct", "openrouter", "vercel"]
         client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         try:
             return await asyncio.gather(*[client.evaluate(p, "jev-1.13.0") for p in packets]), client.route_requests
@@ -160,13 +170,16 @@ def test_client_spreads_packets_over_routes_and_fails_over(monkeypatch):
 
     results, route_requests = asyncio.run(run())
     assert all(r.answers and r.input_tokens == 100 for r in results)
-    assert route_requests["direct"] >= 1 and route_requests["openrouter"] >= 1
-    # The packet that hit the 429 on the direct route was retried on the other route.
-    assert any(r.attempts == 2 and r.route == "openrouter" for r in results)
-    assert {m for _, _, m in seen} == {"jev-1.13.0", "typesafe/jev-1.13"}
+    assert route_requests["direct"] >= 1 and route_requests["openrouter"] >= 1 and route_requests["vercel"] >= 1
+    # The packet that hit the 429 on the direct route was retried on another route.
+    assert any(r.attempts == 2 and r.route != "direct" for r in results)
+    assert {m for _, _, m in seen} == {"jev-1.13.0", "typesafe/jev-1.13", "typesafe-ai/jev"}
     assert {k for r, k, _ in seen if r == "openrouter"} == {"Bearer or-key"} and {k for r, k, _ in seen if r == "direct"} == {"Bearer ts-key"}
-    assert all(r.reported_cost_usd == pytest.approx(0.0000042) for r in results if r.route == "openrouter")
+    assert {k for r, k, _ in seen if r == "vercel"} == {"Bearer vck-key"}
+    assert all(r.reported_cost_usd == pytest.approx(0.0000042) for r in results if r.route in ("openrouter", "vercel"))
     assert all(r.reported_cost_usd is None for r in results if r.route == "direct")
+    # Every route yields the same normalised answer shape, so interpretation is route-independent.
+    assert all(a == {"type": "noul", "noul": 0.9} for r in results for a in r.answers.values())
 
 
 def test_cache_key_depends_on_question_and_payload_not_row():

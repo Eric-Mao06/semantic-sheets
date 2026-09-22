@@ -45,13 +45,19 @@ class Settings:
     typesafe_base_url: str = field(default_factory=lambda: os.environ.get("TYPESAFE_BASE_URL", "https://api.typesafe.ai"))
     jev_model: str = field(default_factory=lambda: os.environ.get("JEV_MODEL", "jev-1.13.0"))
     jev_price_per_mtok_usd: float = field(default_factory=lambda: _env_float("JEV_PRICE_PER_MTOK_USD", 0.042))
-    # Jev is also served by OpenRouter (POST /api/alpha/decisions, same request and answer shape, same price). Each
-    # route has its own rate limit, so JEV_ROUTES="direct,openrouter" spreads packets over both and doubles throughput.
+    # Jev is also served by OpenRouter (POST /api/alpha/decisions, same request and answer shape) and by Vercel AI
+    # Gateway (POST /v1/evaluate; same shape except boolean questions/answers are spelled "boolean"/"probability"
+    # rather than "noul", and usage is camelCase). All three charge the same price. Each route has its own rate
+    # limit, so JEV_ROUTES="direct,openrouter,vercel" spreads packets over all of them and multiplies throughput.
     # Routes whose key is missing are skipped.
-    jev_routes: tuple[str, ...] = field(default_factory=lambda: tuple(r.strip() for r in os.environ.get("JEV_ROUTES", "direct,openrouter").split(",") if r.strip()))
+    jev_routes: tuple[str, ...] = field(default_factory=lambda: tuple(r.strip() for r in os.environ.get("JEV_ROUTES", "direct,openrouter,vercel").split(",") if r.strip()))
     jev_openrouter_model: str = field(default_factory=lambda: os.environ.get("JEV_OPENROUTER_MODEL", "typesafe/jev-1.13"))
     jev_openrouter_url: str = field(default_factory=lambda: os.environ.get("JEV_OPENROUTER_URL", "https://openrouter.ai/api/alpha/decisions"))
-    # Per-route limits (TypeSafe's published limits apply per account; OpenRouter's apply per OpenRouter key).
+    # Vercel AI Gateway. AI_GATEWAY_API_KEY is the variable name Vercel's own SDKs read.
+    vercel_ai_gateway_api_key: str = field(default_factory=lambda: os.environ.get("AI_GATEWAY_API_KEY", ""))
+    jev_vercel_model: str = field(default_factory=lambda: os.environ.get("JEV_VERCEL_MODEL", "typesafe-ai/jev"))
+    jev_vercel_url: str = field(default_factory=lambda: os.environ.get("JEV_VERCEL_URL", "https://ai-gateway.vercel.sh/v1/evaluate"))
+    # Per-route limits (TypeSafe's published limits apply per account; OpenRouter's and Vercel's apply per key).
     jev_requests_per_minute: int = field(default_factory=lambda: _env_int("JEV_RPM", 1200))
     jev_tokens_per_second: int = field(default_factory=lambda: _env_int("JEV_TPS", 250_000))
     jev_max_state_plus_question_tokens: int = 32_000

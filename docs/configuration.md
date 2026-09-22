@@ -14,10 +14,13 @@ override and are changed in `config.py`.
 | `TYPESAFE_API_KEY` | — | TypeSafe API key. Enables the `direct` route. |
 | `TYPESAFE_BASE_URL` | `https://api.typesafe.ai` | Direct route base URL (`/v1/systemone` is appended). |
 | `OPENROUTER_API_KEY` | — | OpenRouter key. Enables the `openrouter` Jev route and the OpenRouter planner. |
-| `JEV_ROUTES` | `direct,openrouter` | Which routes to use; routes whose key is missing are skipped. Set `direct` to pin Jev to TypeSafe. |
+| `AI_GATEWAY_API_KEY` | — | Vercel AI Gateway key. Enables the `vercel` Jev route. |
+| `JEV_ROUTES` | `direct,openrouter,vercel` | Which routes to use; routes whose key is missing are skipped. Set `direct` to pin Jev to TypeSafe. |
 | `JEV_MODEL` | `jev-1.13.0` | Model name written into plans and cache keys. |
 | `JEV_OPENROUTER_MODEL` | `typesafe/jev-1.13` | The same build as listed by OpenRouter. |
 | `JEV_OPENROUTER_URL` | `https://openrouter.ai/api/alpha/decisions` | OpenRouter decisions endpoint. |
+| `JEV_VERCEL_MODEL` | `typesafe-ai/jev` | Jev's id on Vercel AI Gateway (unversioned; resolves to TypeSafe's current build). |
+| `JEV_VERCEL_URL` | `https://ai-gateway.vercel.sh/v1/evaluate` | Vercel AI Gateway evaluate endpoint. |
 | `JEV_PRICE_PER_MTOK_USD` | `0.042` | Price per million input tokens, used for estimates and the spend ledger. |
 | `JEV_RPM` | `1200` | Requests per minute **per route**. |
 | `JEV_TPS` | `250000` | Input tokens per second **per route**. |
@@ -27,8 +30,10 @@ override and are changed in `config.py`.
 | *fixed* `jev_max_total_tokens` | 64,000 | Provider limit on a whole request. |
 | *fixed* `jev_max_retries` / `jev_timeout_seconds` | 5 / 60 | Retry budget and HTTP timeout per request. |
 
-At least one of `TYPESAFE_API_KEY` / `OPENROUTER_API_KEY` must be set for jobs to run. Tests use a fake provider
-and need neither.
+At least one of `TYPESAFE_API_KEY` / `OPENROUTER_API_KEY` / `AI_GATEWAY_API_KEY` must be set for jobs to run. The
+three routes speak nearly the same protocol; the client translates the one difference on the Vercel route (boolean
+questions and answers are spelled `boolean`/`probability` there instead of `noul`) so stored raw answers look the
+same whichever route served them. Tests use a fake provider and need no key.
 
 ### Planner (plain language → plan)
 

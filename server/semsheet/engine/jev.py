@@ -254,13 +254,15 @@ class JevResult:
 
 
 class JevRoute:
-    """One way to reach Jev (TypeSafe direct or OpenRouter's decisions endpoint) with its own limits and counters."""
+    """One way to reach Jev (TypeSafe direct, OpenRouter's decisions endpoint or Vercel AI Gateway) with its own
+    limits and counters. `dialect` names the wire format: "typesafe" (direct and OpenRouter) or "vercel"."""
 
-    def __init__(self, name: str, url: str, api_key: str, model_for: Callable[[str], str], concurrency: int) -> None:
+    def __init__(self, name: str, url: str, api_key: str, model_for: Callable[[str], str], concurrency: int, dialect: str = "typesafe") -> None:
         self.name = name
         self.url = url
         self.api_key = api_key
         self.model_for = model_for
+        self.dialect = dialect
         self.request_bucket = TokenBucket(settings.jev_requests_per_minute / 60.0, max(1.0, settings.jev_requests_per_minute / 60.0 * 2))
         self.token_bucket = TokenBucket(settings.jev_tokens_per_second, settings.jev_tokens_per_second * 2)
         self.semaphore = asyncio.Semaphore(concurrency)
@@ -283,6 +285,35 @@ def _openrouter_model(model: str) -> str:
     return "typesafe/" + model
 
 
+def _vercel_model(model: str) -> str:
+    # Vercel AI Gateway lists one unversioned id ("typesafe-ai/jev") that resolves to TypeSafe's current build.
+    return model if model.startswith("typesafe-ai/") else settings.jev_vercel_model
+
+
+def _vercel_request(body: dict[str, Any]) -> dict[str, Any]:
+    # Same state/questions/criteria shape; only the boolean question type is spelled differently.
+    questions = {k: ({**q, "type": "boolean"} if q.get("type") == "noul" else q) for k, q in body["questions"].items()}
+    return {**body, "questions": questions}
+
+
+def _vercel_answer(answer: dict[str, Any]) -> dict[str, Any]:
+    # Normalise to TypeSafe's answer shape so interpretation and the stored raw JSON are route-independent.
+    if answer.get("type") == "boolean" or ("probability" in answer and "noul" not in answer):
+        out = {k: v for k, v in answer.items() if k != "probability"}
+        out["type"] = "noul"
+        out["noul"] = answer.get("probability", 0.0)
+        return out
+    return answer
+
+
+def _vercel_response(data: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], int, int, float | None]:
+    answers = {k: _vercel_answer(a) for k, a in (data.get("answers") or {}).items()}
+    usage = data.get("usage") or {}
+    gateway = (data.get("providerMetadata") or {}).get("gateway") or {}
+    cost = gateway.get("cost")
+    return answers, int(usage.get("inputTokens", 0)), int(usage.get("outputTokens", 0)), (float(cost) if cost is not None else None)
+
+
 def build_routes(api_key: str | None = None, base_url: str | None = None, concurrency: int | None = None) -> list[JevRoute]:
     per_route = concurrency or settings.jev_concurrency
     routes: list[JevRoute] = []
@@ -294,12 +325,15 @@ def build_routes(api_key: str | None = None, base_url: str | None = None, concur
         elif name == "openrouter":
             if settings.openrouter_api_key:
                 routes.append(JevRoute("openrouter", settings.jev_openrouter_url, settings.openrouter_api_key, _openrouter_model, per_route))
+        elif name == "vercel":
+            if settings.vercel_ai_gateway_api_key:
+                routes.append(JevRoute("vercel", settings.jev_vercel_url, settings.vercel_ai_gateway_api_key, _vercel_model, per_route, dialect="vercel"))
     return routes
 
 
 class JevClient:
     """Async client that spreads packets over every configured route. Each route keeps its own request/token
-    buckets and concurrency, so two routes give twice the throughput; a retryable failure on one route is
+    buckets and concurrency, so N routes give N times the throughput; a retryable failure on one route is
     retried on another. One instance per worker process."""
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None, concurrency: int | None = None) -> None:
@@ -327,7 +361,7 @@ class JevClient:
 
     async def evaluate(self, packet: Packet, model: str) -> JevResult:
         if not self.routes:
-            raise JevError("no Jev route is configured (set TYPESAFE_API_KEY and/or OPENROUTER_API_KEY)", retryable=False)
+            raise JevError("no Jev route is configured (set TYPESAFE_API_KEY, OPENROUTER_API_KEY and/or AI_GATEWAY_API_KEY)", retryable=False)
         body = packet.build()
         attempts = 0
         delay = 0.5
@@ -362,6 +396,8 @@ class JevClient:
 
     async def _attempt(self, route: JevRoute, body: dict[str, Any]) -> JevResult | _Retry:
         assert self._client is not None
+        if route.dialect == "vercel":
+            body = _vercel_request(body)
         try:
             resp = await self._client.post(route.url, json=body, headers={"Authorization": f"Bearer {route.api_key}", "Content-Type": "application/json"})
         except (httpx.TimeoutException, httpx.TransportError) as e:
@@ -379,17 +415,23 @@ class JevClient:
         if resp.status_code >= 400:
             raise JevError(f"{route.name}: provider validation error {resp.status_code}: {resp.text[:400]}", status=resp.status_code, retryable=False)
         data = resp.json()
-        usage = data.get("usage") or {}
-        cost = usage.get("cost")
+        if route.dialect == "vercel":
+            answers, input_tokens, output_tokens, reported_cost = _vercel_response(data)
+        else:
+            usage = data.get("usage") or {}
+            cost = usage.get("cost")
+            answers = data.get("answers") or {}
+            input_tokens, output_tokens = int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0))
+            reported_cost = float(cost) if cost is not None else None
         return JevResult(
-            answers=data.get("answers") or {},
+            answers=answers,
             model=data.get("model") or body["model"],
-            input_tokens=int(usage.get("input_tokens", 0)),
-            output_tokens=int(usage.get("output_tokens", 0)),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             latency_ms=0.0,
             attempts=1,
             route=route.name,
-            reported_cost_usd=float(cost) if cost is not None else None,
+            reported_cost_usd=reported_cost,
         )
 
 

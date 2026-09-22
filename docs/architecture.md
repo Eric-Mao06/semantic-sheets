@@ -112,9 +112,11 @@ The worker claims the job and runs each semantic step in order:
   a packet is reserved against `spend_target_usd` and the workspace budget before dispatch and settled from the
   provider's reported usage after. Hitting any guard stops scheduling, lets in-flight requests finish, commits
   what is done and ends the job as `partial` with a `terminal_reason`.
-- **Routes.** With both `TYPESAFE_API_KEY` and `OPENROUTER_API_KEY` set, packets go to the least-loaded of two
-  routes (TypeSafe direct, OpenRouter's decisions endpoint), each with its own request and token buckets; a
-  retryable failure on one route is retried on the other.
+- **Routes.** Jev is reachable three ways — TypeSafe direct (`TYPESAFE_API_KEY`), OpenRouter's decisions endpoint
+  (`OPENROUTER_API_KEY`) and Vercel AI Gateway's evaluate endpoint (`AI_GATEWAY_API_KEY`). Packets go to the
+  least-loaded configured route, each with its own request and token buckets; a retryable failure on one route
+  is retried on another. The Vercel route's wire format differs only in spelling (`boolean`/`probability` for
+  `noul`, camelCase usage) and is normalised in the client, so raw answers are stored in one shape.
 - **Interpretation.** Each answer is stored raw (`<q>.raw`, the provider's JSON) and interpreted into
   `<q>.value`, `<q>.score`, `<q>.confidence` or `<q>.near`, and `<q>.status`.
 

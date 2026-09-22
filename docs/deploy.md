@@ -10,7 +10,7 @@ the MCP endpoint and the built web app on `$PORT`, with one or more job workers 
 docker build -t semantic-sheet .
 docker run --rm -p 8000:8000 \
   -v semsheet-data:/app/data \
-  -e TYPESAFE_API_KEY=apikey_... -e OPENROUTER_API_KEY=sk-or-... -e OPENAI_API_KEY=sk-... \
+  -e TYPESAFE_API_KEY=apikey_... -e OPENROUTER_API_KEY=sk-or-... -e AI_GATEWAY_API_KEY=vck_... \
   -e SEMSHEET_DEMO_TOKEN=change-me \
   semantic-sheet
 ```
@@ -28,12 +28,13 @@ worker exits, the container exits so the platform restarts it.
 ```bash
 railway up                                        # creates the project + service on first run
 railway volume add --mount-path /app/data         # SQLite metadata, Parquet, exports, Jev cache
-railway variable set TYPESAFE_API_KEY=apikey_... OPENROUTER_API_KEY=sk-or-... OPENAI_API_KEY=sk-... SEMSHEET_DEMO_TOKEN=<token>
+railway variable set TYPESAFE_API_KEY=apikey_... OPENROUTER_API_KEY=sk-or-... AI_GATEWAY_API_KEY=vck_... SEMSHEET_DEMO_TOKEN=<token>
 railway domain
 ```
 
-Without `TYPESAFE_API_KEY`, set `OPENROUTER_API_KEY` and Jev runs over OpenRouter only (the `direct` route is
-skipped). The planner defaults to DeepSeek V4.1 Flash on Together through OpenRouter, so `OPENROUTER_API_KEY` is
+Jev runs over every route that has a key (`TYPESAFE_API_KEY` → TypeSafe direct, `OPENROUTER_API_KEY` → OpenRouter,
+`AI_GATEWAY_API_KEY` → Vercel AI Gateway); each route has its own rate limit, so three keys give roughly three
+times the throughput of one. The planner defaults to DeepSeek V4.1 Flash on Together through OpenRouter, so `OPENROUTER_API_KEY` is
 all it needs; `OPENAI_API_KEY` is only required with `PLANNER_PROVIDER=openai` (`gpt-6-astra`, 15–50 s per plan
 instead of 2–5 s). See [configuration.md](configuration.md).
 

@@ -80,7 +80,8 @@ The full design — import, planning, execution, calibration, querying, storage 
 ## Quickstart
 
 Requirements: Python 3.12+ with [`uv`](https://docs.astral.sh/uv/), Node 20+, and API keys for Jev
-(`TYPESAFE_API_KEY` and/or `OPENROUTER_API_KEY`) and a planner (`OPENAI_API_KEY`, or reuse `OPENROUTER_API_KEY`).
+(any of `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`, `AI_GATEWAY_API_KEY`; each adds a route with its own rate limit)
+and a planner (`OPENAI_API_KEY`, or reuse `OPENROUTER_API_KEY`).
 
 ```bash
 git clone https://github.com/Eric-Mao06/semantic-sheets && cd semantic-sheets

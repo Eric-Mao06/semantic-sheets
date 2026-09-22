@@ -12,13 +12,16 @@ Full numbers, every plan the planner wrote, and examples of disagreements: **[RE
 summary), `results/<run>/RESULTS.md` (per run) and `results/<run>/*.json` (raw). Prices are OpenAI, OpenRouter and
 TypeSafe list prices as of 2026-09-21 and costs are computed from the token usage each API reported.
 
-Jev is available two ways and the engine uses both by default (`JEV_ROUTES=direct,openrouter`): `POST
-https://api.typesafe.ai/v1/systemone` with a TypeSafe key, and `POST https://openrouter.ai/api/alpha/decisions` with an
+Jev is available three ways and the engine uses all of them by default (`JEV_ROUTES=direct,openrouter,vercel`): `POST
+https://api.typesafe.ai/v1/systemone` with a TypeSafe key, `POST https://openrouter.ai/api/alpha/decisions` with an
 OpenRouter key (model id `typesafe/jev-1.13`; it is a "decisions" model, so it does not appear in OpenRouter's chat
-model list). The request and answer shapes are identical, the token counts match to the token, and the price is the same
-$0.042 / M input (OpenRouter reports the cost inline). Each route keeps its own request/token buckets and concurrency
-in `server/semsheet/engine/jev.py`, packets go to the least-loaded route, and a 429/5xx on one route is retried on the
-other, so two routes give roughly twice the throughput.
+model list), and `POST https://ai-gateway.vercel.sh/v1/evaluate` with a Vercel AI Gateway key (model id `typesafe-ai/jev`,
+listed as an "evaluation" model). The first two share an identical request and answer shape; Vercel's differs only in
+spelling (`boolean`/`probability` for `noul`, camelCase usage), which the client normalises. The price is the same
+$0.042 / M input on all three (OpenRouter and Vercel report the cost inline). Each route keeps its own request/token
+buckets and concurrency in `server/semsheet/engine/jev.py`, packets go to the least-loaded route, and a 429/5xx on one
+route is retried on another, so N routes give roughly N times the throughput. The runs recorded here predate the Vercel
+route and used `direct,openrouter`.
 
 ## Scenarios
 
@@ -246,7 +249,8 @@ PY=server/.venv/bin/python
 $PY benchmarks/run.py                              # both arms, all scenarios, gpt-6-astra planner (~$12 of gpt-6-astra, ~$0.15 of Jev)
 $PY benchmarks/run.py -s wdc_product_matching --arms pipeline
 $PY benchmarks/run.py --reuse oneshot              # rerun operators + comparison, reuse stored one-shot answers
-export OPENROUTER_API_KEY=...                      # enables Jev over both routes (JEV_ROUTES=direct,openrouter) and the OpenRouter planner
+export OPENROUTER_API_KEY=...                      # enables the OpenRouter Jev route and the OpenRouter planner
+export AI_GATEWAY_API_KEY=...                      # enables the Vercel AI Gateway Jev route
 $PY benchmarks/run.py --planner-provider openrouter --planner-model z-ai/glm-5.3-flash --reuse oneshot
 JEV_ROUTES=direct $PY benchmarks/run.py ...        # pin Jev to the TypeSafe API only
 $PY benchmarks/run.py --planner-provider openrouter --planner-model deepseek/deepseek-v4.1-flash \
