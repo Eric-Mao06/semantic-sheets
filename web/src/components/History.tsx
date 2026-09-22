@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Notice, Spinner } from "@/components/ui/misc";
+import { Progress } from "@/components/ui/progress";
 
 type V = { result_version_id: string; parent_result_version_id: string | null; status: string; created_at: number; overrides: number; note?: string };
 
@@ -19,6 +20,10 @@ type Props = {
   onSelect: (rv: string) => void;
   onExport: (format: "csv" | "parquet", raw: boolean) => Promise<void>;
   exportInfo: ExportInfo;
+  spentUsd: number;
+  budgetUsd: number;
+  model: string;
+  plannerModel: string;
 };
 
 function when(ts: number): string {
@@ -28,7 +33,7 @@ function when(ts: number): string {
 }
 
 /** Past runs on this table, hand edits (only when there are any), and export. */
-export default function History({ rv, activeRv, jobs, onSelect, onExport, exportInfo }: Props) {
+export default function History({ rv, activeRv, jobs, onSelect, onExport, exportInfo, spentUsd, budgetUsd, model, plannerModel }: Props) {
   const [versions, setVersions] = useState<V[]>([]);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -99,6 +104,16 @@ export default function History({ rv, activeRv, jobs, onSelect, onExport, export
             );
           })}
         </ul>
+      </section>
+
+      <section className="flex flex-col gap-2 border-t border-line pt-4">
+        <span className="label-mono">Workspace</span>
+        <div className="flex items-baseline gap-2 text-[13px] text-ink tabular-nums">
+          <span>{formatUsd(spentUsd)} spent</span>
+          <span className="text-ink-tertiary">of {formatUsd(budgetUsd)}</span>
+        </div>
+        <Progress value={budgetUsd ? Math.min(100, (100 * spentUsd) / budgetUsd) : 0} aria-label="Budget used" />
+        <p className="font-mono text-[10.5px] tracking-[0.02em] text-ink-tertiary">judgements {model} · planning {plannerModel}</p>
       </section>
 
       {versions.length > 1 && (

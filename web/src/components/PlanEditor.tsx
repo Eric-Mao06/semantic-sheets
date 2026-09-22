@@ -403,17 +403,17 @@ function QuestionEditor({ q, onChange, onRemove }: { q: Question; onChange: (q: 
       {q.kind === "category" && (
         <div className="flex flex-col gap-1.5">
           {Object.entries(q.options ?? {}).map(([label, desc]) => (
-            <div className="flex flex-wrap items-center gap-1.5" key={label}>
+            <div className="grid grid-cols-[7.5rem_minmax(0,1fr)_auto] items-center gap-1.5 max-[900px]:grid-cols-[minmax(0,1fr)_auto]" key={label}>
               <Input
                 type="text"
-                className="w-32 font-mono text-[12px]"
+                className="font-mono text-[12px]"
                 value={label}
                 onChange={(e) => {
                   const entries = Object.entries(q.options ?? {}).map(([k, v]) => (k === label ? [e.target.value.replace(/[^A-Za-z0-9_ -]/g, "_"), v] : [k, v]));
                   onChange({ ...q, options: Object.fromEntries(entries) });
                 }}
               />
-              <Input type="text" className="min-w-0 flex-1 basis-32" value={desc ?? ""} placeholder="description" onChange={(e) => onChange({ ...q, options: { ...q.options, [label]: e.target.value } })} />
+              <Input type="text" className="min-w-0 max-[900px]:col-span-2 max-[900px]:row-start-2" value={desc ?? ""} placeholder="what this label means" onChange={(e) => onChange({ ...q, options: { ...q.options, [label]: e.target.value } })} />
               <Button
                 variant="ghost"
                 size="icon-sm"

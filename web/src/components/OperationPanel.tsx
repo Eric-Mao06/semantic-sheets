@@ -94,10 +94,11 @@ export default function OperationPanel({ plan, validation, validating, validatio
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <span>{s.text}</span>
                   {s.questions?.map((q) => (
-                    <div key={q.name} className="grain flex flex-col gap-0.5 rounded-md border-l-2 border-line-strong bg-field/60 py-1.5 pr-2.5 pl-3">
-                      <span className="text-[12px] text-ink-muted">
-                        {q.lead} <span className="font-mono text-[11px] text-ink-tertiary">→ {q.name}</span>
-                      </span>
+                    <div key={q.name} className="grain flex flex-col gap-1 rounded-md border-l-2 border-line-strong bg-field/60 py-2 pr-2.5 pl-3">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <Badge variant="outline" className="normal-case tracking-normal">{q.name}</Badge>
+                        <span className="text-[12px] text-ink-muted">{q.lead}</span>
+                      </div>
                       <span className="text-[12.5px] leading-relaxed text-ink italic">“{q.prompt}”</span>
                     </div>
                   ))}

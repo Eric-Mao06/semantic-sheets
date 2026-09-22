@@ -9,7 +9,7 @@ import { cn, formatCount, formatUsd, jobStateLabel } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/input";
 import { Kbd, Notice, Spinner } from "@/components/ui/misc";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -63,6 +63,15 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
   useEffect(() => {
     activeRvRef.current = activeRv;
   }, [activeRv]);
+
+  // The command bar grows with the request (one to four lines) so long prompts stay readable on phones.
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = promptRef.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }, [prompt, isMobile]);
 
   const showToast = useCallback((m: string) => {
     setToast(m);
@@ -326,7 +335,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
       type="button"
       key={id}
       onClick={() => pickStep(id)}
-      className={cn("-mb-px inline-flex h-9 items-center gap-1.5 border-b-[1.5px] px-0.5 text-[12.5px] whitespace-nowrap transition-colors", step === id ? "border-ink text-ink" : "border-transparent text-ink-muted hover:text-ink")}
+      className={cn("-mb-px inline-flex h-full items-center gap-1.5 border-b-[1.5px] px-0.5 text-[12.5px] whitespace-nowrap transition-colors", step === id ? "border-ink text-ink" : "border-transparent text-ink-muted hover:text-ink")}
     >
       {label}
       {extra}
@@ -344,7 +353,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
           </Button>
           <div className="min-w-0">
             <div className="truncate text-[13.5px] font-medium text-ink" title={dataset.name}>{dataset.name}</div>
-            <div className="truncate font-mono text-[10.5px] tracking-[0.02em] text-ink-secondary">
+            <div className="landscape-hide truncate font-mono text-[10.5px] tracking-[0.02em] text-ink-secondary">
               {formatCount(dataset.row_count)} rows · {dataset.column_count} columns
               {dataset.import_report?.rejected_rows ? ` · ${dataset.import_report.rejected_rows} rows skipped` : ""}
               {preview ? " · preview" : ""}
@@ -368,29 +377,36 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
         {/* Command bar ------------------------------------------------------------------------ */}
         <div className="safe-x border-b border-line bg-paper px-3 py-2.5 [--safe-pad:12px]">
           <form
-            className="relative flex items-center gap-2"
+            className="flex items-end gap-2"
             onSubmit={(e) => {
               e.preventDefault();
               if (!compiling) void compile();
             }}
           >
-            <Input
-              className="h-10 flex-1 rounded-md bg-page pr-24 text-[14px] shadow-none"
+            <Textarea
+              ref={promptRef}
+              rows={1}
+              className="max-h-32 min-h-10 flex-1 resize-none rounded-md bg-page py-2.5 text-[14px] leading-snug shadow-none max-[900px]:min-h-11 max-[900px]:py-3"
               placeholder={isMobile ? "What do you want to do with this table?" : "What do you want to do with this table? e.g. “Find customers trying to cancel because they can't afford it, and rate how urgent each message is”"}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter sends; Shift+Enter makes a new line (long requests wrap instead of scrolling out of view).
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (!compiling && prompt.trim()) void compile();
+                }
+              }}
               disabled={compiling}
               enterKeyHint="go"
               autoCapitalize="sentences"
               aria-label="Describe what you want to do"
             />
-            <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-1.5">
-              {prompt && !compiling && !isMobile && <Kbd className="text-ink-tertiary"><CornerDownLeft className="size-2.5" /></Kbd>}
-              <Button type="submit" size="sm" disabled={compiling || !prompt.trim()} className="h-7">
-                {compiling ? <Spinner className="text-white" /> : null}
-                {compiling ? "Thinking…" : plan ? "Update" : "Go"}
-              </Button>
-            </div>
+            {prompt && !compiling && !isMobile && <Kbd className="mb-3 text-ink-tertiary"><CornerDownLeft className="size-2.5" /></Kbd>}
+            <Button type="submit" disabled={compiling || !prompt.trim()} className="h-10 min-w-16 max-[900px]:h-11">
+              {compiling ? <Spinner className="text-white" /> : null}
+              {compiling ? "Thinking…" : plan ? "Update" : "Go"}
+            </Button>
           </form>
         </div>
 
@@ -398,14 +414,14 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
         <div className={cn("grid min-h-0", isMobile ? "grid-cols-[minmax(0,1fr)]" : "grid-cols-[minmax(0,1fr)_420px] max-[1200px]:grid-cols-[minmax(0,1fr)_380px]")}>
           <div className="flex min-h-0 min-w-0 flex-col" hidden={!showTable}>
             {/* Views row */}
-            <div className="flex h-9 items-center gap-4 border-b border-line bg-paper px-3 scrollbar-none overflow-x-auto">
+            <div className={cn("flex items-center gap-4 border-b border-line bg-paper px-3 scrollbar-none overflow-x-auto", isMobile ? "h-10" : "h-9")}>
               {viewTab("source", "Source")}
               {hasResult && viewTab(result!.output, "Result", stepInfo?.provisional && step === result!.output ? <Badge variant="pending">updating</Badge> : undefined)}
               {reviewViews.map((s) => viewTab(s.review_view!, reviewViews.length > 1 ? `Needs a look · ${s.id}` : "Needs a look"))}
               {intermediate.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button type="button" className={cn("-mb-px inline-flex h-9 items-center gap-1 border-b-[1.5px] px-0.5 text-[12.5px] whitespace-nowrap", viewingIntermediate ? "border-ink text-ink" : "border-transparent text-ink-muted hover:text-ink")}>
+                    <button type="button" className={cn("-mb-px inline-flex h-full items-center gap-1 border-b-[1.5px] px-0.5 text-[12.5px] whitespace-nowrap", viewingIntermediate ? "border-ink text-ink" : "border-transparent text-ink-muted hover:text-ink")}>
                       {viewingIntermediate ? `Step · ${step}` : "Steps"}
                       <ChevronDown className="size-3" />
                     </button>
@@ -505,7 +521,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
                 {activeRv && <Inspector rv={activeRv} step={step} row={selected.row} column={selected.column} semanticStep={semanticStepForColumn(selected.column).stepId} questions={semanticStepForColumn(selected.column).questions} onCorrect={correct} />}
               </TabsContent>
               <TabsContent value="history" className="flex min-h-0 flex-col data-[state=inactive]:hidden">
-                <History rv={hasResult ? activeRv : null} activeRv={activeRv} jobs={jobs} onSelect={(rv) => { userPickedStep.current = false; setLocalFilter(null); setActiveRv(rv); setJob(jobs.find((j) => j.result_version_id === rv) ?? null); setMobilePane("table"); }} onExport={doExport} exportInfo={exportInfo} />
+                <History rv={hasResult ? activeRv : null} activeRv={activeRv} jobs={jobs} spentUsd={wsInfo.spent_usd} budgetUsd={wsInfo.budget_usd} model={wsInfo.model} plannerModel={wsInfo.planner_model} onSelect={(rv) => { userPickedStep.current = false; setLocalFilter(null); setActiveRv(rv); setJob(jobs.find((j) => j.result_version_id === rv) ?? null); setMobilePane("table"); }} onExport={doExport} exportInfo={exportInfo} />
               </TabsContent>
             </Tabs>
           </aside>
@@ -527,7 +543,7 @@ export default function Workbench({ dataset, workspace, initialPrompt, note, pre
                 <button
                   key={id}
                   type="button"
-                  className={cn("inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 border-t-[1.5px] text-[12.5px] font-medium", active ? "border-ink text-ink" : "border-transparent text-ink-muted")}
+                  className={cn("inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 border-t-[1.5px] text-[12.5px] font-medium landscape-compact", active ? "border-ink text-ink" : "border-transparent text-ink-muted")}
                   onClick={() => (id === "table" ? setMobilePane("table") : openPanel(id as SideTab))}
                 >
                   {label}

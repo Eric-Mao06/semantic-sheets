@@ -244,3 +244,59 @@ body::after {
     font-size: 16px;
   }
 }
+
+/* Touch devices: comfortable hit targets without changing the desktop rhythm. */
+@media (pointer: coarse) {
+  [data-slot="button"] {
+    min-height: 40px;
+  }
+  [data-slot="button"][data-size="sm"],
+  [data-slot="button"][data-size="icon-sm"] {
+    min-height: 36px;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+  [data-slot="button"][data-size="icon-sm"] {
+    min-width: 36px;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  [data-slot="input"],
+  [data-slot="native-select"] {
+    min-height: 40px;
+  }
+  [data-slot="switch"] {
+    height: 22px;
+    width: 38px;
+  }
+  [data-slot="switch-thumb"] {
+    width: 18px;
+    height: 18px;
+  }
+  [data-slot="switch-thumb"][data-state="checked"] {
+    translate: 18px 0;
+  }
+  [data-slot="switch-thumb"][data-state="unchecked"] {
+    translate: 2px 0;
+  }
+  [data-slot="slider-thumb"] {
+    width: 20px;
+    height: 20px;
+  }
+  [data-slot="tabs-trigger"] {
+    min-height: 44px;
+  }
+  [data-slot="collapsible-trigger"] {
+    min-height: 36px;
+  }
+}
+
+/* Short landscape phones: trim vertical chrome so the table stays usable. */
+@media (max-width: 900px) and (max-height: 480px) {
+  .landscape-hide {
+    display: none !important;
+  }
+  .landscape-compact {
+    min-height: 40px !important;
+  }
+}

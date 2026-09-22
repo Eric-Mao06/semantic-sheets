@@ -1,9 +1,10 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(function Input({ className, type, ...props }, ref) {
   return (
     <input
+      ref={ref}
       type={type}
       data-slot="input"
       className={cn(
@@ -13,11 +14,12 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       {...props}
     />
   );
-}
+});
 
-function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+const Textarea = React.forwardRef<HTMLTextAreaElement, React.ComponentProps<"textarea">>(function Textarea({ className, ...props }, ref) {
   return (
     <textarea
+      ref={ref}
       data-slot="textarea"
       className={cn(
         "flex min-h-14 w-full rounded-md border border-line-strong bg-paper px-2.5 py-1.5 text-[13px] leading-relaxed text-ink shadow-none outline-none transition-[border-color,box-shadow] placeholder:text-ink-tertiary focus-visible:border-blue focus-visible:ring-[3px] focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50",
@@ -26,7 +28,7 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
       {...props}
     />
   );
-}
+});
 
 /** Styled native select: reliable on phones and cheap in long editor forms. */
 function NativeSelect({ className, children, ...props }: React.ComponentProps<"select">) {
